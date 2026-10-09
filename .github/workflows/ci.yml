@@ -45,6 +45,12 @@ jobs:
       - name: Installers (NSIS on Windows, DMG/ZIP on macOS)
         run: npx electron-builder --publish never
 
+      - name: Update feed config is packaged
+        shell: bash
+        run: |
+          f=$(find release -path '*esources/app-update.yml' | head -1)
+          test -n "$f" && grep -q 'provider: github' "$f" && echo "found $f"
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: SchemaScope-${{ runner.os }}

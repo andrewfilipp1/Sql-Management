@@ -21,7 +21,7 @@ if (!exe) {
 const port = 9400 + Math.floor(Math.random() * 400);
 const apiPort = 48000 + Math.floor(Math.random() * 1000);
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'schemascope-smoke-'));
-const child = spawn(exe, [`--remote-debugging-port=${port}`], { env: { ...process.env, SCHEMASCOPE_USER_DATA: userData }, stdio: 'ignore' });
+const child = spawn(exe, [`--remote-debugging-port=${port}`], { env: { ...process.env, SCHEMASCOPE_USER_DATA: userData, SCHEMASCOPE_NO_UPDATE: '1' }, stdio: 'ignore' });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = [];
 const check = (name, ok, info = '') => {
@@ -76,6 +76,15 @@ try {
   const unauth = await fetch(`http://127.0.0.1:${apiPort}/v1/connections`).then((r) => r.status).catch(() => 0);
   check('API rejects requests without a key', unauth === 401, `status ${unauth}`);
   await ipc('setServer', { enabled: false });
+
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const up = await ipc('updateState');
+  check('updater wired (checks off for this run)', up.ok && up.data.phase === 'disabled' && up.data.currentVersion === pkg.version, up.ok ? `${up.data.phase} v${up.data.currentVersion}` : up.error);
+  const ai = await ipc('aiState');
+  check('AI settings load (no key yet)', ai.ok && ai.data.hasKey === false, ai.ok ? ai.data.settings.model : ai.error);
+  const nb = await ipc('saveNotebook', { id: '', name: 'Smoke', connId: demo.id, database: 'main', updatedAt: '', cells: [{ id: 'c1', kind: 'sql', source: 'SELECT 1' }] });
+  const list = await ipc('listNotebooks');
+  check('notebook saves and lists', nb.ok && list.ok && list.data.some((n) => n.id === nb.data.id), nb.ok ? '' : nb.error);
 
   check('no page exceptions', exceptions.length === 0, exceptions.slice(0, 2).join(' / '));
 } catch (e) {

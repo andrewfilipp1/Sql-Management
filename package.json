@@ -19,6 +19,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
     "better-sqlite3": "^13.0.3",
+    "electron-updater": "^6.8.9",
     "mssql": "^12.7.4",
     "mysql2": "^3.24.5",
     "pg": "^8.23.1",
@@ -87,12 +88,22 @@
         "dmg",
         "zip"
       ],
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "win": {
       "target": [
         "nsis"
-      ]
-    }
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "andrewfilipp1",
+        "repo": "Sql-Management",
+        "releaseType": "release"
+      }
+    ]
   }
 }

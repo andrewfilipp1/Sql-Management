@@ -14,6 +14,7 @@ import type {
   SchemaSnapshot,
   TableRef,
 } from './types.ts';
+import type { UpdateState } from './update.ts';
 import type { Notebook, NotebookSummary } from './notebook.ts';
 import type { AiRequest, AiResponse, AiSettings, AiState } from './ai.ts';
 import type { ApiKeyInfo, IntegrationsState, KeyAccess, RequestLogEntry, SavedEndpoint, ServerSettings } from './integrations.ts';
@@ -79,6 +80,12 @@ export interface Api {
   saveNotebook(nb: Notebook): Promise<Notebook>;
   deleteNotebook(id: string): Promise<void>;
 
+  /** App updates (main process). */
+  updateState(): Promise<UpdateState>;
+  checkForUpdates(): Promise<UpdateState>;
+  downloadUpdate(): Promise<UpdateState>;
+  installUpdate(): Promise<void>;
+
   /** Native dialogs (implemented in the Electron main process). */
   pickSqliteFile(mode: 'open' | 'create'): Promise<string | null>;
   saveTextFile(defaultName: string, content: string): Promise<boolean>;
@@ -91,6 +98,8 @@ export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: string; c
 /** Shape exposed on `window.schemascope` by the preload script. */
 export interface Bridge {
   invoke(method: ApiMethod, ...args: unknown[]): Promise<IpcResult<unknown>>;
+  /** Update status pushed by the main process. Returns an unsubscribe function. */
+  onUpdate(cb: (state: UpdateState) => void): () => void;
   platform: string;
 }
 

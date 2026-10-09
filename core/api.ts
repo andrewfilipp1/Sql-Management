@@ -15,7 +15,18 @@ import { aiState, askAi, listAiModels, saveAiSettings } from './ai.ts';
 import { splitGoBatches, splitStatements } from './util.ts';
 
 /** Methods that need Electron (native dialogs) are supplied by the main process. */
-export type CoreApi = Omit<Api, 'pickSqliteFile' | 'saveTextFile' | 'pickCsv' | 'exportScript' | 'backup' | 'restore'>;
+export type NativeMethods =
+  | 'pickSqliteFile'
+  | 'saveTextFile'
+  | 'pickCsv'
+  | 'exportScript'
+  | 'backup'
+  | 'restore'
+  | 'updateState'
+  | 'checkForUpdates'
+  | 'downloadUpdate'
+  | 'installUpdate';
+export type CoreApi = Omit<Api, NativeMethods>;
 
 // Introspection can be costly on large databases, so keep one snapshot per live driver.
 const schemaCache = new WeakMap<Driver, SchemaSnapshot>();

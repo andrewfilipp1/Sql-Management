@@ -2,7 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme, safeStorage, shell } 
 import fs from 'node:fs';
 import path from 'node:path';
 import { IPC_CHANNEL, type Api, type ApiMethod, type IpcResult } from '../shared/ipc.ts';
-import { coreApi, errorMessage } from '../core/api.ts';
+import { coreApi, errorMessage, type NativeMethods } from '../core/api.ts';
+import { checkForUpdates, downloadUpdate, initUpdater, installUpdate, setUpdateWindow, updateState } from './updater.ts';
 import { closeAll } from '../core/pool.ts';
 import { applyServerSettings, stopServer } from '../core/httpApi.ts';
 import { setDataDir, setSecretCodec } from '../core/store.ts';
@@ -20,7 +21,14 @@ let win: BrowserWindow | null = null;
 
 const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
 
-const nativeApi: Pick<Api, 'pickSqliteFile' | 'saveTextFile' | 'pickCsv' | 'exportScript' | 'backup' | 'restore'> = {
+const nativeApi: Pick<Api, NativeMethods> = {
+  updateState: async () => updateState(),
+  checkForUpdates,
+  downloadUpdate,
+  async installUpdate() {
+    installUpdate();
+  },
+
   async pickCsv() {
     const r = await dialog.showOpenDialog(win!, {
       title: 'Import CSV',
@@ -128,6 +136,7 @@ function createWindow() {
   });
 
   win.once('ready-to-show', () => win?.show());
+  setUpdateWindow(win);
 
   // External links open in the user's browser; the app never navigates away from itself.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -159,6 +168,7 @@ app.whenReady().then(() => {
   }
   registerIpc();
   createWindow();
+  initUpdater();
   // Local REST/MCP server, only if the user enabled it in Integrations.
   void applyServerSettings();
   app.on('activate', () => {

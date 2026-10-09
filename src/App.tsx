@@ -9,6 +9,7 @@ import { DashboardTab } from './components/tabs/DashboardTab';
 import { IntegrationsTab } from './components/tabs/IntegrationsTab';
 import { EndpointDialog } from './components/EndpointDialog';
 import { NotebookTab } from './components/notebook/NotebookTab';
+import { UpdateIndicator } from './components/UpdateIndicator';
 import { AiSettingsDialog } from './components/ai/AiSettingsDialog';
 import { ActivityTab } from './components/dba/ActivityTab';
 import { SecurityTab } from './components/dba/SecurityTab';
@@ -137,7 +138,7 @@ function StatusBar({ tab }: { tab?: Tab }) {
         <span>Not connected</span>
       )}
       <div className="flex-1" />
-      <span>SchemaScope</span>
+      <UpdateIndicator />
     </div>
   );
 }
