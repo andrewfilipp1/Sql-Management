@@ -24,8 +24,10 @@ const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'schemascope-smoke-'));
 const child = spawn(exe, [`--remote-debugging-port=${port}`], { env: { ...process.env, SCHEMASCOPE_USER_DATA: userData, SCHEMASCOPE_NO_UPDATE: '1' }, stdio: 'ignore' });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = [];
+const names = [];
 const check = (name, ok, info = '') => {
   results.push(ok);
+  names.push(`${ok ? '✓' : '✗'} ${name}`);
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${info ? '  — ' + info : ''}`);
 };
 
@@ -117,4 +119,6 @@ try {
 }
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed on ${process.platform}`);
+// On GitHub Actions also leave an annotation, so the result is visible on the run page without opening the log.
+if (process.env.GITHUB_ACTIONS) console.log(`::notice title=Smoke test (${process.platform})::${results.length - failed}/${results.length} passed%0A${names.join('%0A')}`);
 process.exit(failed ? 1 : 0);
