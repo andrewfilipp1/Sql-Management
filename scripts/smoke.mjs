@@ -86,6 +86,26 @@ try {
   const list = await ipc('listNotebooks');
   check('notebook saves and lists', nb.ok && list.ok && list.data.some((n) => n.id === nb.data.id), nb.ok ? '' : nb.error);
 
+  // Windows CI: integrated Windows authentication against SQL Server LocalDB (through msnodesqlv8 / ODBC).
+  if (process.env.SMOKE_MSSQL_LOCALDB) {
+    const saved = await ipc('saveConnection', { name: 'LocalDB (smoke)', kind: 'mssql', host: '(localdb)\\MSSQLLocalDB', authType: 'windows' });
+    const c = saved.ok && (await ipc('connect', saved.data.id));
+    check('Windows auth: connects to LocalDB', !!c?.ok, c?.ok ? c.data.serverVersion : saved.error ?? c?.error);
+    if (c?.ok) {
+      const who = await ipc('query', saved.data.id, 'master', 'SELECT SUSER_SNAME() AS login');
+      const login = who.ok ? String(who.data.results[0].rows[0][0]) : who.error;
+      check('Windows auth: signed in as the Windows user', who.ok && login.includes('\\'), login);
+      const db = 'schemascope_smoke';
+      const script = `IF DB_ID('${db}') IS NULL CREATE DATABASE ${db}`;
+      await ipc('query', saved.data.id, 'master', script, { confirmed: true });
+      const t = await ipc('query', saved.data.id, db, "CREATE TABLE t (id INT IDENTITY PRIMARY KEY, name NVARCHAR(50), amount DECIMAL(10,2)); INSERT INTO t (name, amount) VALUES (N'Μαρία', 12.5), (N'Nikos', 3); SELECT COUNT(*) AS n, SUM(amount) AS s FROM t;", { confirmed: true });
+      check('Windows auth: DDL, Unicode insert and query', t.ok && Number(t.data.results.at(-1).rows[0][0]) === 2 && Number(t.data.results.at(-1).rows[0][1]) === 15.5, t.ok ? JSON.stringify(t.data.results.at(-1).rows[0]) : t.error);
+      const sch = await ipc('schema', saved.data.id, db, true);
+      check('Windows auth: schema introspection', sch.ok && sch.data.tables.some((x) => x.name === 't' && x.columns.length === 3), sch.ok ? `${sch.data.tables.length} tables` : sch.error);
+      await ipc('disconnect', saved.data.id);
+    }
+  }
+
   check('no page exceptions', exceptions.length === 0, exceptions.slice(0, 2).join(' / '));
 } catch (e) {
   check('smoke test ran', false, e.message);

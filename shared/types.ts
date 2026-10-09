@@ -16,6 +16,13 @@ export interface ConnectionConfig {
   database?: string;
   /** SQL Server named instance, e.g. SQLEXPRESS */
   instance?: string;
+  /**
+   * SQL Server authentication: 'sql' login (default), 'ntlm' Windows account with
+   * domain + user + password, or 'windows' integrated (current Windows user, Windows only).
+   */
+  authType?: MssqlAuth;
+  /** Windows domain for NTLM. */
+  domain?: string;
   encrypt?: boolean;
   trustServerCertificate?: boolean;
   ssl?: boolean;
@@ -31,6 +38,8 @@ export interface ConnectionConfig {
   sshKeyFile?: string;
   sshPassphrase?: string;
 }
+
+export type MssqlAuth = 'sql' | 'ntlm' | 'windows';
 
 export type ConnectionEnvironment = 'development' | 'staging' | 'production';
 

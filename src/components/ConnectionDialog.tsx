@@ -1,12 +1,12 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { CheckCircle2, FilePlus2, FolderOpen, PlugZap, ShieldAlert, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { DEFAULT_PORT, KIND_LABEL, type ConnectionEnvironment, type DbKind } from '../../shared/types';
-import { api, type ConnectionInput } from '../lib/api';
+import { DEFAULT_PORT, KIND_LABEL, type ConnectionEnvironment, type DbKind, type MssqlAuth } from '../../shared/types';
+import { api, platform, type ConnectionInput } from '../lib/api';
 import { useStore } from '../lib/store';
 import { cn, CONNECTION_COLORS } from '../lib/utils';
 import { DbIcon, KIND_COLOR } from './DbIcon';
-import { Button, Checkbox, Field, Input, Modal, Segmented, spring } from './ui';
+import { Button, Checkbox, Field, Input, Modal, Segmented, Select, spring } from './ui';
 
 const KINDS: { kind: DbKind; hint: string }[] = [
   { kind: 'sqlite', hint: 'Local .db / .sqlite file' },
@@ -61,6 +61,7 @@ export function ConnectionDialog() {
 
   const kind = form.kind ?? 'sqlite';
   const sqlServerNamed = kind === 'mssql' && !!form.instance?.trim();
+  const auth: MssqlAuth = kind === 'mssql' ? (form.authType ?? 'sql') : 'sql';
   const valid = kind === 'sqlite' ? !!form.file?.trim() : !!form.host?.trim();
 
   const payload = (): ConnectionInput => {
@@ -212,18 +213,44 @@ export function ConnectionDialog() {
                 placeholder={sqlServerNamed ? 'auto' : String(DEFAULT_PORT[kind] ?? '')}
               />
             </Field>
-            <Field label="User" className="col-span-3">
-              <Input value={form.user ?? ''} onChange={(e) => set({ user: e.target.value })} autoComplete="off" />
-            </Field>
-            <Field label="Password" className="col-span-3">
-              <Input
-                type="password"
-                value={form.password ?? ''}
-                onChange={(e) => set({ password: e.target.value, keepPassword: false })}
-                placeholder={form.keepPassword ? '•••••• (unchanged)' : ''}
-                autoComplete="new-password"
-              />
-            </Field>
+            {kind === 'mssql' && (
+              <Field label="Authentication" className="col-span-6">
+                <Select value={auth} onChange={(e) => set({ authType: e.target.value as MssqlAuth })} data-testid="mssql-auth">
+                  <option value="sql">SQL Server login</option>
+                  <option value="ntlm">Windows account (domain, user, password)</option>
+                  <option value="windows" disabled={platform !== 'win32'}>
+                    Windows — current user{platform !== 'win32' ? ' (only on Windows)' : ''}
+                  </option>
+                </Select>
+              </Field>
+            )}
+            {auth === 'ntlm' && (
+              <Field label="Domain" className="col-span-2" hint="Or write DOMAIN\user">
+                <Input value={form.domain ?? ''} onChange={(e) => set({ domain: e.target.value })} placeholder="CONTOSO" autoComplete="off" />
+              </Field>
+            )}
+            {auth !== 'windows' && (
+              <>
+                <Field label="User" className={auth === 'ntlm' ? 'col-span-2' : 'col-span-3'}>
+                  <Input value={form.user ?? ''} onChange={(e) => set({ user: e.target.value })} autoComplete="off" />
+                </Field>
+                <Field label="Password" className={auth === 'ntlm' ? 'col-span-2' : 'col-span-3'}>
+                  <Input
+                    type="password"
+                    value={form.password ?? ''}
+                    onChange={(e) => set({ password: e.target.value, keepPassword: false })}
+                    placeholder={form.keepPassword ? '•••••• (unchanged)' : ''}
+                    autoComplete="new-password"
+                  />
+                </Field>
+              </>
+            )}
+            {auth === 'windows' && (
+              <p className="col-span-6 -mt-1 text-[11.5px] text-muted">
+                Signs in as the Windows user running SchemaScope, through the SQL Server ODBC driver (ODBC Driver 18/17 if installed, otherwise the
+                driver built into Windows).
+              </p>
+            )}
             <Field label="Database" className="col-span-6" hint="Optional — the database to open first. All databases you can access are listed after connecting.">
               <Input value={form.database ?? ''} onChange={(e) => set({ database: e.target.value })} placeholder={kind === 'postgres' ? 'postgres' : kind === 'mssql' ? 'master' : ''} />
             </Field>
@@ -241,8 +268,9 @@ export function ConnectionDialog() {
               <p className="col-span-6 rounded-lg border border-line bg-white/[0.02] p-2.5 text-[11.5px] leading-relaxed text-muted">
                 SQL Server Express: use server <span className="font-mono text-fg">localhost</span> with instance{' '}
                 <span className="font-mono text-fg">SQLEXPRESS</span> (needs the SQL Server Browser service), or enter the TCP port
-                directly. Uses SQL Server authentication — enable “SQL Server and Windows Authentication mode” and TCP/IP in SQL Server
-                Configuration Manager.
+                directly. LocalDB: server <span className="font-mono text-fg">(localdb)\MSSQLLocalDB</span> with “Windows — current user”.
+                {auth === 'sql' && ' SQL Server logins need “SQL Server and Windows Authentication mode”.'} TCP/IP must be enabled in SQL Server
+                Configuration Manager for network connections.
               </p>
             )}
             <div className="col-span-6">

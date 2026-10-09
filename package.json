@@ -81,7 +81,8 @@
       "package.json"
     ],
     "asarUnpack": [
-      "**/node_modules/better-sqlite3/**"
+      "**/node_modules/better-sqlite3/**",
+      "**/node_modules/msnodesqlv8/**"
     ],
     "mac": {
       "target": [
@@ -105,5 +106,8 @@
         "releaseType": "release"
       }
     ]
+  },
+  "optionalDependencies": {
+    "msnodesqlv8": "^5.5.0"
   }
 }

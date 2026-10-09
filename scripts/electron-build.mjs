@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 // Runtime dependencies (native modules, DB drivers) stay in node_modules.
-const external = ['electron', ...Object.keys(pkg.dependencies ?? {})];
+const external = ['electron', ...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.optionalDependencies ?? {})];
 
 export const options = {
   entryPoints: { main: 'electron/main.ts', preload: 'electron/preload.ts' },

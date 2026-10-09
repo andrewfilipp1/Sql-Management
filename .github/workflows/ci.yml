@@ -39,6 +39,22 @@ jobs:
       - name: Package (unpacked)
         run: npx electron-builder --dir --publish never
 
+      # Integrated Windows authentication is tested against SQL Server LocalDB.
+      - name: Start SQL Server LocalDB
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command sqllocaldb -ErrorAction SilentlyContinue)) {
+            choco install sqllocaldb -y --no-progress
+            $bin = Get-ChildItem 'C:\Program Files\Microsoft SQL Server\*\Tools\Binn\SqlLocalDB.exe' | Select-Object -First 1
+            $env:PATH = "$($bin.DirectoryName);$env:PATH"
+          }
+          sqllocaldb create MSSQLLocalDB 2>$null
+          sqllocaldb start MSSQLLocalDB
+          sqllocaldb info MSSQLLocalDB
+          Get-OdbcDriver -Platform 64-bit | Where-Object Name -like '*SQL Server*' | Select-Object -ExpandProperty Name
+          "SMOKE_MSSQL_LOCALDB=1" >> $env:GITHUB_ENV
+
       - name: Smoke test the packaged app
         run: node scripts/smoke.mjs
 

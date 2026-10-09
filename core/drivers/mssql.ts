@@ -27,18 +27,91 @@ function formatType(r: Record<string, any>): string {
   }
 }
 
+type MssqlLib = typeof sql;
+
+/**
+ * Integrated Windows authentication (current Windows user) goes through ODBC with msnodesqlv8,
+ * an optional native module that is only installed on Windows. Everything else uses tedious.
+ */
+let odbcLib: Promise<MssqlLib> | null = null;
+function loadOdbcLib(): Promise<MssqlLib> {
+  if (process.platform !== 'win32') {
+    return Promise.reject(
+      new HttpError(400, 'Integrated Windows authentication works only on Windows. On this computer choose “Windows account (NTLM)” and enter the domain, user and password.'),
+    );
+  }
+  // Plain require (the main process is bundled to CommonJS): loads the native ODBC binding.
+  odbcLib ??= new Promise<MssqlLib>((resolve, reject) => {
+    try {
+      resolve(require('mssql/msnodesqlv8') as MssqlLib);
+    } catch {
+      odbcLib = null;
+      reject(new HttpError(500, 'The Windows authentication module (msnodesqlv8) is missing from this build.'));
+    }
+  });
+  return odbcLib;
+}
+
+// Newest first; "SQL Server" is the legacy driver that ships with every Windows.
+const ODBC_DRIVERS = ['ODBC Driver 18 for SQL Server', 'ODBC Driver 17 for SQL Server', 'SQL Server'];
+let odbcDriver: string | null = null;
+
+/** ODBC connection string value, braced when it contains special characters. */
+function odbcValue(v: string): string {
+  return /[;{}=\s]/.test(v) || v !== v.trim() ? `{${v.replace(/}/g, '}}')}}` : v;
+}
+
 export class MssqlDriver extends Driver {
   readonly kind = 'mssql' as const;
   private pool!: sql.ConnectionPool;
+  private lib: MssqlLib = sql;
 
-  private config(): sql.config {
+  private get integrated() {
+    return this.cfg.authType === 'windows';
+  }
+
+  private odbcConnectionString(driver: string): string {
+    const host = this.cfg.host?.trim() || 'localhost';
     const instance = this.cfg.instance?.trim();
+    // LocalDB "(localdb)\MSSQLLocalDB" and named instances are addressed without a port.
+    const server = instance ? `${host}\\${instance}` : /^\(localdb\)/i.test(host) || !this.cfg.port ? host : `${host},${this.cfg.port}`;
+    const parts: Record<string, string> = {
+      Driver: `{${driver}}`,
+      Server: odbcValue(server),
+      Trusted_Connection: 'yes',
+      'Application Name': 'SchemaScope',
+    };
+    if (this.database) parts.Database = odbcValue(this.database);
+    if (driver !== 'SQL Server') {
+      parts.Encrypt = this.cfg.encrypt ? 'yes' : 'no';
+      parts.TrustServerCertificate = this.cfg.trustServerCertificate ?? true ? 'yes' : 'no';
+    }
+    return Object.entries(parts)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(';');
+  }
+
+  /** Accepts the domain in its own field or as DOMAIN\\user. */
+  private ntlmUser(): { domain: string; userName: string } {
+    const user = this.cfg.user?.trim() ?? '';
+    const i = user.indexOf('\\');
+    if (!this.cfg.domain?.trim() && i > 0) return { domain: user.slice(0, i), userName: user.slice(i + 1) };
+    return { domain: this.cfg.domain?.trim() ?? '', userName: user };
+  }
+
+  private config(driver?: string): sql.config {
+    const instance = this.cfg.instance?.trim();
+    const auth: Partial<sql.config> =
+      this.cfg.authType === 'ntlm'
+        ? { authentication: { type: 'ntlm', options: { ...this.ntlmUser(), password: this.cfg.password ?? '' } } }
+        : this.integrated
+          ? ({ connectionString: this.odbcConnectionString(driver ?? odbcDriver ?? ODBC_DRIVERS[0]) } as Partial<sql.config>)
+          : { user: this.cfg.user, password: this.cfg.password };
     return {
       server: this.cfg.host || 'localhost',
       // A named instance (e.g. SQLEXPRESS) is resolved through the SQL Browser service unless a port is given.
       port: instance && !this.cfg.port ? undefined : this.cfg.port || 1433,
-      user: this.cfg.user,
-      password: this.cfg.password,
+      ...auth,
       database: this.database,
       pool: { max: 5, min: 0, idleTimeoutMillis: 60_000 },
       connectionTimeout: 15_000,
@@ -55,8 +128,28 @@ export class MssqlDriver extends Driver {
   }
 
   async connect() {
-    this.pool = new sql.ConnectionPool(this.config());
-    await this.pool.connect();
+    if (!this.integrated) {
+      this.pool = new sql.ConnectionPool(this.config());
+      await this.pool.connect();
+      return;
+    }
+    this.lib = await loadOdbcLib();
+    // Use the newest installed SQL Server ODBC driver; remember it for later connections.
+    let lastError: unknown;
+    for (const driver of odbcDriver ? [odbcDriver] : ODBC_DRIVERS) {
+      const pool = new this.lib.ConnectionPool(this.config(driver));
+      try {
+        await pool.connect();
+        this.pool = pool;
+        odbcDriver = driver;
+        return;
+      } catch (e) {
+        lastError = e;
+        // IM002: driver not installed — try the next one. Any other error is real.
+        if (!/IM002|data source name not found|driver not found/i.test(`${(e as { code?: string }).code} ${(e as Error).message}`)) throw e;
+      }
+    }
+    throw lastError;
   }
 
   async close() {
@@ -94,10 +187,10 @@ export class MssqlDriver extends Driver {
   exec: Exec = (text, params = []) => this.run(this.pool.request(), text, params);
 
   async transaction<T>(fn: (exec: Exec) => Promise<T>): Promise<T> {
-    const tx = new sql.Transaction(this.pool);
+    const tx = new this.lib.Transaction(this.pool);
     await tx.begin();
     try {
-      const r = await fn((text, params = []) => this.run(new sql.Request(tx), text, params));
+      const r = await fn((text, params = []) => this.run(new this.lib.Request(tx), text, params));
       await tx.commit();
       return r;
     } catch (e) {
@@ -338,7 +431,7 @@ export class MssqlDriver extends Driver {
 
   /** SHOWPLAN must be alone in its batch and on the same session as the query, so use a one-connection pool. */
   async explain(text: string, analyze: boolean): Promise<RawPlan> {
-    const single = new sql.ConnectionPool({ ...this.config(), pool: { max: 1, min: 0 } });
+    const single = new this.lib.ConnectionPool({ ...this.config(), pool: { max: 1, min: 0 } });
     await single.connect();
     try {
       const flag = analyze ? 'STATISTICS XML' : 'SHOWPLAN_XML';
