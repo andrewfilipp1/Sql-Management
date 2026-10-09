@@ -1,6 +1,21 @@
 import type { ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { AnimatePresence, motion } from 'motion/react';
-import { AlignLeft, Braces, Cable, Gauge, Clock, FileSpreadsheet, History, Microscope, Play, ShieldAlert, TerminalSquare, XCircle } from 'lucide-react';
+import {
+  AlignLeft,
+  Braces,
+  Cable,
+  Gauge,
+  Clock,
+  FileSpreadsheet,
+  History,
+  Microscope,
+  Play,
+  ShieldAlert,
+  Sparkles,
+  TerminalSquare,
+  Wrench,
+  XCircle,
+} from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
 import { format as formatSql } from 'sql-formatter';
 import type { DbKind, QueryResponse } from '../../../shared/types';
@@ -12,6 +27,7 @@ import { DataGrid } from '../DataGrid';
 import { PlanView } from '../dba/PlanView';
 import { normalizePlan, type PlanNode } from '../../lib/plan';
 import { SqlEditor } from '../SqlEditor';
+import { AiPanel, type AiTrigger } from '../ai/AiPanel';
 import { Button, EmptyState, IconButton, Kbd, Modal, Select, spring, useContextMenu } from '../ui';
 
 const FORMAT_LANG: Record<DbKind, 'sqlite' | 'postgresql' | 'mysql' | 'transactsql'> = {
@@ -59,6 +75,17 @@ export function QueryTab({ tab }: { tab: Tab }) {
   const sql = tab.sql ?? '';
 
   const [confirm, setConfirm] = useState<{ sql: string; items: string[] } | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiTrigger, setAiTrigger] = useState<AiTrigger | null>(null);
+  const askAi = (task: AiTrigger['task']) => {
+    setAiOpen(true);
+    setAiTrigger({ task, nonce: Date.now() });
+  };
+  const applyAiSql = (text: string, mode: 'replace' | 'append') => {
+    const current = useStore.getState().tabs.find((t) => t.id === tab.id)?.sql ?? '';
+    updateTab(tab.id, { sql: mode === 'replace' || !current.trim() ? text : `${current.trimEnd()}\n\n${text}` });
+    editorRef.current?.view?.focus();
+  };
 
   const execute = useCallback(
     async (text: string, confirmed = false) => {
@@ -156,173 +183,208 @@ export function QueryTab({ tab }: { tab: Tab }) {
   };
 
   return (
-    <div ref={containerRef} className="flex h-full flex-col">
-      <Modal
-        open={!!confirm}
-        onClose={() => setConfirm(null)}
-        title={`Production: ${conn?.name ?? ''}`}
-        icon={<ShieldAlert className="size-4 text-danger" />}
-        width={560}
-        footer={
-          <>
-            <Button onClick={() => setConfirm(null)}>Cancel</Button>
-            <Button
-              variant="danger"
-              icon={<Play className="size-3.5" />}
-              onClick={() => {
-                const c = confirm!;
-                setConfirm(null);
-                void execute(c.sql, true);
-              }}
-            >
-              Run anyway
-            </Button>
-          </>
-        }
-      >
-        <p className="mb-3 text-[13px] text-muted">This script contains statements that can remove or overwrite a lot of data:</p>
-        <ul className="space-y-1.5">
-          {confirm?.items.map((it, i) => (
-            <li key={i} className="rounded-lg border border-rose-400/25 bg-rose-500/10 px-2.5 py-1.5 font-mono text-xs text-rose-100">
-              {it}
-            </li>
-          ))}
-        </ul>
-      </Modal>
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 border-b border-line px-3 py-2">
-        <Button variant="primary" icon={<Play className="size-3.5 fill-current" />} loading={running} onClick={run}>
-          Run
-        </Button>
-        <span className="hidden items-center gap-1 text-[11px] text-faint lg:flex">
-          <Kbd>⌘/Ctrl</Kbd>+<Kbd>Enter</Kbd>
-        </span>
-        <div className="mx-1 h-5 w-px bg-line" />
-        <IconButton label="Estimated execution plan" disabled={planning} onClick={() => void explain(false)}>
-          <Microscope className="size-4" />
-        </IconButton>
-        <IconButton label="Actual execution plan (runs the query — read queries only)" disabled={planning} onClick={() => void explain(true)}>
-          <Gauge className="size-4" />
-        </IconButton>
-        <IconButton label="Format SQL" onClick={format}>
-          <AlignLeft className="size-4" />
-        </IconButton>
-        <IconButton label="History" onClick={showHistory}>
-          <History className="size-4" />
-        </IconButton>
-        <Button
-          size="sm"
-          variant="ghost"
-          icon={<Cable className="size-3.5" />}
-          title="Publish this query as a REST endpoint (use :name for parameters)"
-          disabled={!sql.trim()}
-          onClick={() => useStore.getState().editEndpoint({ connId: tab.connId, database: tab.database, sql: selectedText().trim() })}
+    <div className="flex h-full">
+      <div ref={containerRef} className="flex h-full min-w-0 flex-1 flex-col">
+        <Modal
+          open={!!confirm}
+          onClose={() => setConfirm(null)}
+          title={`Production: ${conn?.name ?? ''}`}
+          icon={<ShieldAlert className="size-4 text-danger" />}
+          width={560}
+          footer={
+            <>
+              <Button onClick={() => setConfirm(null)}>Cancel</Button>
+              <Button
+                variant="danger"
+                icon={<Play className="size-3.5" />}
+                onClick={() => {
+                  const c = confirm!;
+                  setConfirm(null);
+                  void execute(c.sql, true);
+                }}
+              >
+                Run anyway
+              </Button>
+            </>
+          }
         >
-          Publish as API
-        </Button>
-        <div className="flex-1" />
-        {kind !== 'sqlite' && session?.databases.length ? (
-          <Select
-            value={tab.database}
-            onChange={(e) => updateTab(tab.id, { database: e.target.value })}
-            className="h-7 max-w-[220px] text-xs"
-            title="Database"
-          >
-            {session.databases.map((d) => (
-              <option key={d}>{d}</option>
+          <p className="mb-3 text-[13px] text-muted">This script contains statements that can remove or overwrite a lot of data:</p>
+          <ul className="space-y-1.5">
+            {confirm?.items.map((it, i) => (
+              <li key={i} className="rounded-lg border border-rose-400/25 bg-rose-500/10 px-2.5 py-1.5 font-mono text-xs text-rose-100">
+                {it}
+              </li>
             ))}
-          </Select>
-        ) : null}
-      </div>
+          </ul>
+        </Modal>
+        {/* Toolbar */}
+        <div className="flex items-center gap-2 border-b border-line px-3 py-2">
+          <Button variant="primary" icon={<Play className="size-3.5 fill-current" />} loading={running} onClick={run}>
+            Run
+          </Button>
+          <span className="hidden items-center gap-1 text-[11px] text-faint lg:flex">
+            <Kbd>⌘/Ctrl</Kbd>+<Kbd>Enter</Kbd>
+          </span>
+          <div className="mx-1 h-5 w-px bg-line" />
+          <IconButton label="Estimated execution plan" disabled={planning} onClick={() => void explain(false)}>
+            <Microscope className="size-4" />
+          </IconButton>
+          <IconButton label="Actual execution plan (runs the query — read queries only)" disabled={planning} onClick={() => void explain(true)}>
+            <Gauge className="size-4" />
+          </IconButton>
+          <IconButton label="Format SQL" onClick={format}>
+            <AlignLeft className="size-4" />
+          </IconButton>
+          <IconButton label="History" onClick={showHistory}>
+            <History className="size-4" />
+          </IconButton>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<Cable className="size-3.5" />}
+            title="Publish this query as a REST endpoint (use :name for parameters)"
+            disabled={!sql.trim()}
+            onClick={() => useStore.getState().editEndpoint({ connId: tab.connId, database: tab.database, sql: selectedText().trim() })}
+          >
+            Publish as API
+          </Button>
+          <div className="flex-1" />
+          <Button
+            size="sm"
+            variant={aiOpen ? 'primary' : 'ghost'}
+            icon={<Sparkles className="size-3.5" />}
+            title="AI assistant: write, explain, optimize and fix SQL"
+            onClick={() => setAiOpen((v) => !v)}
+            data-testid="ai-toggle"
+          >
+            AI
+          </Button>
+          {kind !== 'sqlite' && session?.databases.length ? (
+            <Select
+              value={tab.database}
+              onChange={(e) => updateTab(tab.id, { database: e.target.value })}
+              className="h-7 max-w-[220px] text-xs"
+              title="Database"
+            >
+              {session.databases.map((d) => (
+                <option key={d}>{d}</option>
+              ))}
+            </Select>
+          ) : null}
+        </div>
 
-      {/* Editor */}
-      <div style={{ height: `${split}%` }} className="min-h-0 bg-black/15">
-        <SqlEditor
-          ref={editorRef}
-          value={sql}
-          onChange={(v) => updateTab(tab.id, { sql: v })}
-          kind={kind}
-          schema={schema}
-          onRun={run}
-          placeholder="-- Write SQL here. Run everything, or select a statement and run just that."
-        />
-      </div>
+        {/* Editor */}
+        <div style={{ height: `${split}%` }} className="min-h-0 bg-black/15">
+          <SqlEditor
+            ref={editorRef}
+            value={sql}
+            onChange={(v) => updateTab(tab.id, { sql: v })}
+            kind={kind}
+            schema={schema}
+            onRun={run}
+            placeholder="-- Write SQL here. Run everything, or select a statement and run just that."
+          />
+        </div>
 
-      <div onMouseDown={startDrag} className="group relative h-1.5 shrink-0 cursor-row-resize border-y border-line bg-white/[0.02]">
-        <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-accent/0 transition-colors group-hover:bg-accent/70 group-hover:shadow-[0_0_10px_rgb(129_140_248/0.8)]" />
-      </div>
+        <div onMouseDown={startDrag} className="group relative h-1.5 shrink-0 cursor-row-resize border-y border-line bg-white/[0.02]">
+          <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-accent/0 transition-colors group-hover:bg-accent/70 group-hover:shadow-[0_0_10px_rgb(129_140_248/0.8)]" />
+        </div>
 
-      {/* Results */}
-      <div className="flex min-h-0 flex-1 flex-col">
-        {(result || error || plan) && (
-          <div className="flex items-center gap-1 border-b border-line px-2 py-1.5">
-            {grids.map((g, i) =>
-              g.columns.length ? (
-                <ResultTabButton key={i} active={active === i} onClick={() => setActive(i)}>
-                  Result {grids.slice(0, i + 1).filter((x) => x.columns.length).length}
-                  <span className="text-faint">{formatNumber(g.rowCount)}</span>
+        {/* Results */}
+        <div className="flex min-h-0 flex-1 flex-col">
+          {(result || error || plan) && (
+            <div className="flex items-center gap-1 border-b border-line px-2 py-1.5">
+              {grids.map((g, i) =>
+                g.columns.length ? (
+                  <ResultTabButton key={i} active={active === i} onClick={() => setActive(i)}>
+                    Result {grids.slice(0, i + 1).filter((x) => x.columns.length).length}
+                    <span className="text-faint">{formatNumber(g.rowCount)}</span>
+                  </ResultTabButton>
+                ) : null,
+              )}
+              {result && (
+                <ResultTabButton active={active === grids.length && !error} onClick={() => setActive(grids.length)}>
+                  Messages
                 </ResultTabButton>
-              ) : null,
-            )}
-            {result && (
-              <ResultTabButton active={active === grids.length && !error} onClick={() => setActive(grids.length)}>
-                Messages
-              </ResultTabButton>
-            )}
-            {plan && (
-              <ResultTabButton active={active === PLAN_TAB && !error} onClick={() => (setActive(PLAN_TAB), setError(null))}>
-                <Microscope className="size-3" /> {plan.analyzed ? 'Actual plan' : 'Plan'}
-              </ResultTabButton>
-            )}
-            <div className="flex-1" />
-            {current?.truncated && <span className="text-[11px] text-warn">Showing first {formatNumber(current.rowCount)} rows</span>}
-            {result && (
-              <span className="flex items-center gap-1 text-[11px] text-muted">
-                <Clock className="size-3" /> {formatMs(result.durationMs)}
-              </span>
-            )}
-            {current?.columns.length ? (
-              <>
-                <IconButton label="Export CSV" onClick={() => void exportAs('csv')}>
-                  <FileSpreadsheet className="size-3.5" />
-                </IconButton>
-                <IconButton label="Export JSON" onClick={() => void exportAs('json')}>
-                  <Braces className="size-3.5" />
-                </IconButton>
-              </>
-            ) : null}
+              )}
+              {plan && (
+                <ResultTabButton active={active === PLAN_TAB && !error} onClick={() => (setActive(PLAN_TAB), setError(null))}>
+                  <Microscope className="size-3" /> {plan.analyzed ? 'Actual plan' : 'Plan'}
+                </ResultTabButton>
+              )}
+              <div className="flex-1" />
+              {current?.truncated && <span className="text-[11px] text-warn">Showing first {formatNumber(current.rowCount)} rows</span>}
+              {result && (
+                <span className="flex items-center gap-1 text-[11px] text-muted">
+                  <Clock className="size-3" /> {formatMs(result.durationMs)}
+                </span>
+              )}
+              {current?.columns.length ? (
+                <>
+                  <IconButton label="Export CSV" onClick={() => void exportAs('csv')}>
+                    <FileSpreadsheet className="size-3.5" />
+                  </IconButton>
+                  <IconButton label="Export JSON" onClick={() => void exportAs('json')}>
+                    <Braces className="size-3.5" />
+                  </IconButton>
+                </>
+              ) : null}
+            </div>
+          )}
+          <div className="relative min-h-0 flex-1">
+            <AnimatePresence mode="wait">
+              {error ? (
+                <motion.div key="err" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={spring} className="p-4">
+                  <div className="flex gap-3 rounded-xl border border-rose-400/30 bg-rose-500/10 p-3.5 shadow-[0_0_30px_-12px_rgb(251_113_133/0.7)]">
+                    <XCircle className="mt-0.5 size-4 shrink-0 text-danger" />
+                    <pre className="flex-1 font-mono text-xs whitespace-pre-wrap text-rose-100">{error}</pre>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={<Wrench className="size-3.5" />}
+                      className="shrink-0 self-start"
+                      onClick={() => askAi('fix')}
+                      data-testid="ai-fix"
+                    >
+                      Fix with AI
+                    </Button>
+                  </div>
+                </motion.div>
+              ) : active === PLAN_TAB && plan ? (
+                <motion.div key={`plan-${plan.root.id}-${plan.analyzed}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-full">
+                  <PlanView root={plan.root} analyzed={plan.analyzed} />
+                </motion.div>
+              ) : current?.columns.length ? (
+                <motion.div key={`grid-${active}-${result?.durationMs}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-full">
+                  <DataGrid columns={current.columns} rowCount={current.rows.length} getValue={(r, c) => current.rows[r][c]} />
+                </motion.div>
+              ) : result ? (
+                <motion.div key="msg" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-1 p-4 font-mono text-xs text-muted">
+                  {result.messages.length ? result.messages.map((m, i) => <div key={i}>{m}</div>) : <div>Query executed successfully.</div>}
+                  <div className="pt-2 text-ok">✓ Completed in {formatMs(result.durationMs)}</div>
+                </motion.div>
+              ) : (
+                <EmptyState key="empty" icon={<TerminalSquare className="size-6" />} title="Ready">
+                  Results appear here. Multiple statements produce multiple result tabs.
+                </EmptyState>
+              )}
+            </AnimatePresence>
           </div>
-        )}
-        <div className="relative min-h-0 flex-1">
-          <AnimatePresence mode="wait">
-            {error ? (
-              <motion.div key="err" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={spring} className="p-4">
-                <div className="flex gap-3 rounded-xl border border-rose-400/30 bg-rose-500/10 p-3.5 shadow-[0_0_30px_-12px_rgb(251_113_133/0.7)]">
-                  <XCircle className="mt-0.5 size-4 shrink-0 text-danger" />
-                  <pre className="font-mono text-xs whitespace-pre-wrap text-rose-100">{error}</pre>
-                </div>
-              </motion.div>
-            ) : active === PLAN_TAB && plan ? (
-              <motion.div key={`plan-${plan.root.id}-${plan.analyzed}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-full">
-                <PlanView root={plan.root} analyzed={plan.analyzed} />
-              </motion.div>
-            ) : current?.columns.length ? (
-              <motion.div key={`grid-${active}-${result?.durationMs}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-full">
-                <DataGrid columns={current.columns} rowCount={current.rows.length} getValue={(r, c) => current.rows[r][c]} />
-              </motion.div>
-            ) : result ? (
-              <motion.div key="msg" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-1 p-4 font-mono text-xs text-muted">
-                {result.messages.length ? result.messages.map((m, i) => <div key={i}>{m}</div>) : <div>Query executed successfully.</div>}
-                <div className="pt-2 text-ok">✓ Completed in {formatMs(result.durationMs)}</div>
-              </motion.div>
-            ) : (
-              <EmptyState key="empty" icon={<TerminalSquare className="size-6" />} title="Ready">
-                Results appear here. Multiple statements produce multiple result tabs.
-              </EmptyState>
-            )}
-          </AnimatePresence>
         </div>
       </div>
+      <AnimatePresence>
+        {aiOpen && (
+          <AiPanel
+            connId={tab.connId}
+            database={tab.database}
+            getSql={selectedText}
+            lastError={error}
+            trigger={aiTrigger}
+            onUseSql={applyAiSql}
+            onClose={() => setAiOpen(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -29,12 +29,12 @@ export const SECRET_FIELDS = ['password', 'sshPassword', 'sshPassphrase'] as con
 type SecretField = (typeof SECRET_FIELDS)[number];
 const ENC_PREFIX = 'enc:v1:';
 
-function encodeSecret(v: string): string {
+export function encodeSecret(v: string): string {
   if (!codec?.available()) return v; // no keyring (e.g. headless Linux): file stays 0600, see README
   return ENC_PREFIX + codec.encrypt(v).toString('base64');
 }
 
-function decodeSecret(v: string): { value: string; legacy: boolean } {
+export function decodeSecret(v: string): { value: string; legacy: boolean } {
   if (!v.startsWith(ENC_PREFIX)) return { value: v, legacy: true };
   if (!codec?.available()) throw new Error('Stored credentials are encrypted but the OS keychain is not available');
   return { value: codec.decrypt(Buffer.from(v.slice(ENC_PREFIX.length), 'base64')), legacy: false };

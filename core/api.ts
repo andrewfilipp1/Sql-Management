@@ -10,6 +10,7 @@ import { applyServerSettings, requestLog, serverStatus } from './httpApi.ts';
 import { runEndpoint } from './endpoints.ts';
 import { bulkInsert, importCsv } from './transfer.ts';
 import { backupInfo } from './backup.ts';
+import { aiState, askAi, listAiModels, saveAiSettings } from './ai.ts';
 import { splitGoBatches, splitStatements } from './util.ts';
 
 /** Methods that need Electron (native dialogs) are supplied by the main process. */
@@ -195,6 +196,22 @@ export const coreApi: CoreApi = {
       throw new HttpError(400, 'Actual plans execute the statement — only allowed for read queries. Use the estimated plan.');
     }
     return (await getDriver(connId, database)).explain(first, analyze);
+  },
+
+  async aiState() {
+    return aiState();
+  },
+
+  async saveAiSettings(patch, key) {
+    return saveAiSettings(patch, key);
+  },
+
+  async aiModels() {
+    return listAiModels();
+  },
+
+  async ask(req) {
+    return askAi(req, await schemaOf(await getDriver(req.connId, req.database)));
   },
 };
 

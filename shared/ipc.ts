@@ -14,6 +14,7 @@ import type {
   SchemaSnapshot,
   TableRef,
 } from './types.ts';
+import type { AiRequest, AiResponse, AiSettings, AiState } from './ai.ts';
 import type { ApiKeyInfo, IntegrationsState, KeyAccess, RequestLogEntry, SavedEndpoint, ServerSettings } from './integrations.ts';
 
 export type ConnectionInput = Partial<ConnectionConfig> & { keepPassword?: boolean };
@@ -64,6 +65,12 @@ export interface Api {
   killSession(connId: string, database: string, id: string, mode: 'cancel' | 'terminate'): Promise<void>;
   security(connId: string, database: string): Promise<SecurityInfo>;
   explain(connId: string, database: string, sql: string, analyze: boolean): Promise<RawPlan>;
+
+  /** AI assistant. The provider key is write-only: it is never returned to the renderer. */
+  aiState(): Promise<AiState>;
+  saveAiSettings(patch: Partial<AiSettings>, key?: string): Promise<AiState>;
+  aiModels(): Promise<string[]>;
+  ask(req: AiRequest): Promise<AiResponse>;
 
   /** Native dialogs (implemented in the Electron main process). */
   pickSqliteFile(mode: 'open' | 'create'): Promise<string | null>;

@@ -22,6 +22,7 @@ import {
   Trash2,
   Unplug,
   Waypoints,
+  Sparkles,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { PublicConnection, TableInfo } from '../../shared/types';
@@ -463,6 +464,9 @@ export function Sidebar() {
         <span className="flex-1 text-[13px] font-semibold tracking-tight">SchemaScope</span>
         <IconButton label="Integrations: REST API, endpoints, MCP" className="no-drag" onClick={() => useStore.getState().openIntegrations()}>
           <Cable className="size-4" />
+        </IconButton>
+        <IconButton label="AI assistant settings" className="no-drag" onClick={() => useStore.getState().openAiSettings(true)}>
+          <Sparkles className="size-4" />
         </IconButton>
       </div>
 

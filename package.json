@@ -17,6 +17,7 @@
     "dist:dir": "npm run build && electron-builder --dir --publish never"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
     "better-sqlite3": "^13.0.3",
     "mssql": "^12.7.4",
     "mysql2": "^3.24.5",

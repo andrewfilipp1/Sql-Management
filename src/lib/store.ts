@@ -75,6 +75,7 @@ interface State {
   endpointDraft: Partial<SavedEndpoint> | null;
   /** Database-scoped dialogs; `table` preselects a table where relevant. */
   dbDialog: { kind: DbDialogKind; connId: string; database: string; table?: TableRef } | null;
+  aiSettingsOpen: boolean;
 
   loadConnections(): Promise<void>;
   saveConnection(c: ConnectionInput): Promise<PublicConnection>;
@@ -103,6 +104,7 @@ interface State {
   editEndpoint(d: Partial<SavedEndpoint> | null): void;
   openDbDialog(d: State['dbDialog']): void;
   openIntegrations(): void;
+  openAiSettings(open: boolean): void;
 }
 
 const inflightSchemas = new Map<string, Promise<SchemaSnapshot | undefined>>();
@@ -124,6 +126,7 @@ export const useStore = create<State>()(
       designer: null,
       endpointDraft: null,
       dbDialog: null,
+      aiSettingsOpen: false,
 
       async loadConnections() {
         try {
@@ -330,6 +333,10 @@ export const useStore = create<State>()(
       openIntegrations() {
         // Not tied to a connection: connId/database stay empty.
         get().openTab({ kind: 'integrations', connId: '', database: '', title: 'Integrations' });
+      },
+
+      openAiSettings(open) {
+        set({ aiSettingsOpen: open });
       },
     }),
     {

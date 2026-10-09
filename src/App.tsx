@@ -8,6 +8,7 @@ import { Sidebar } from './components/Sidebar';
 import { DashboardTab } from './components/tabs/DashboardTab';
 import { IntegrationsTab } from './components/tabs/IntegrationsTab';
 import { EndpointDialog } from './components/EndpointDialog';
+import { AiSettingsDialog } from './components/ai/AiSettingsDialog';
 import { ActivityTab } from './components/dba/ActivityTab';
 import { SecurityTab } from './components/dba/SecurityTab';
 import { CompareTab } from './components/dba/CompareTab';
@@ -225,6 +226,7 @@ export function App() {
       <PromptDialog />
       <TableDesigner />
       <EndpointDialog />
+      <AiSettingsDialog />
       <ImportDialog />
       <ExportDialog />
       <BackupDialog />
