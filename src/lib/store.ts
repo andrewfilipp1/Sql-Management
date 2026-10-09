@@ -5,7 +5,7 @@ import type { SavedEndpoint } from '../../shared/integrations';
 import { api, type ConnectionInput } from './api';
 import { dbKey, uid } from './utils';
 
-export type TabKind = 'query' | 'table' | 'diagram' | 'dashboard' | 'integrations' | 'activity' | 'security' | 'compare' | 'datacompare';
+export type TabKind = 'query' | 'table' | 'diagram' | 'dashboard' | 'integrations' | 'activity' | 'security' | 'compare' | 'datacompare' | 'notebook';
 export type TableView = 'data' | 'structure' | 'relations' | 'ddl';
 
 export type DbDialogKind = 'import' | 'export' | 'backup' | 'mock' | 'docs';
@@ -20,6 +20,7 @@ export interface Tab {
   view?: TableView;
   sql?: string;
   focus?: string;
+  notebookId?: string;
 }
 
 export interface Session {

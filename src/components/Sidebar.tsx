@@ -23,11 +23,12 @@ import {
   Unplug,
   Waypoints,
   Sparkles,
+  NotebookPen,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { PublicConnection, TableInfo } from '../../shared/types';
 import { KIND_LABEL } from '../../shared/types';
-import { databaseToolsMenu, openDashboard, openDiagram, openRoutine, openTable, refreshSchema, tableMenu } from '../lib/actions';
+import { databaseToolsMenu, notebooksMenu, openDashboard, openDiagram, openRoutine, openTable, refreshSchema, tableMenu } from '../lib/actions';
 import { platform } from '../lib/api';
 import { useSchema, useStore } from '../lib/store';
 import { cn, compactNumber, dbKey } from '../lib/utils';
@@ -449,6 +450,7 @@ export function Sidebar() {
   const connections = useStore((s) => s.connections);
   const openConnectionDialog = useStore((s) => s.openConnectionDialog);
   const [filter, setFilter] = useState('');
+  const openMenu = useContextMenu();
 
   return (
     <aside className="glass relative z-10 flex h-full w-[280px] shrink-0 flex-col border-y-0 border-l-0">
@@ -464,6 +466,9 @@ export function Sidebar() {
         <span className="flex-1 text-[13px] font-semibold tracking-tight">SchemaScope</span>
         <IconButton label="Integrations: REST API, endpoints, MCP" className="no-drag" onClick={() => useStore.getState().openIntegrations()}>
           <Cable className="size-4" />
+        </IconButton>
+        <IconButton label="Notebooks" className="no-drag" onClick={(e) => void notebooksMenu().then((items) => openMenu(e, items))}>
+          <NotebookPen className="size-4" />
         </IconButton>
         <IconButton label="AI assistant settings" className="no-drag" onClick={() => useStore.getState().openAiSettings(true)}>
           <Sparkles className="size-4" />

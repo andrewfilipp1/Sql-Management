@@ -10,6 +10,7 @@ import { applyServerSettings, requestLog, serverStatus } from './httpApi.ts';
 import { runEndpoint } from './endpoints.ts';
 import { bulkInsert, importCsv } from './transfer.ts';
 import { backupInfo } from './backup.ts';
+import { deleteNotebook, getNotebook, listNotebooks, saveNotebook } from './notebooks.ts';
 import { aiState, askAi, listAiModels, saveAiSettings } from './ai.ts';
 import { splitGoBatches, splitStatements } from './util.ts';
 
@@ -212,6 +213,22 @@ export const coreApi: CoreApi = {
 
   async ask(req) {
     return askAi(req, await schemaOf(await getDriver(req.connId, req.database)));
+  },
+
+  async listNotebooks() {
+    return listNotebooks();
+  },
+
+  async getNotebook(id) {
+    return getNotebook(id);
+  },
+
+  async saveNotebook(nb) {
+    return saveNotebook(nb);
+  },
+
+  async deleteNotebook(id) {
+    deleteNotebook(id);
   },
 };
 

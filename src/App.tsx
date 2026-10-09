@@ -1,5 +1,5 @@
 import { AnimatePresence, LayoutGroup, motion } from 'motion/react';
-import { Activity, Cable, Columns2, GitCompareArrows, LayoutDashboard, Shield, Table2, TerminalSquare, Waypoints, X } from 'lucide-react';
+import { Activity, Cable, Columns2, GitCompareArrows, LayoutDashboard, NotebookPen, Shield, Table2, TerminalSquare, Waypoints, X } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
 import { KIND_LABEL } from '../shared/types';
 import { ConnectionDialog } from './components/ConnectionDialog';
@@ -8,6 +8,7 @@ import { Sidebar } from './components/Sidebar';
 import { DashboardTab } from './components/tabs/DashboardTab';
 import { IntegrationsTab } from './components/tabs/IntegrationsTab';
 import { EndpointDialog } from './components/EndpointDialog';
+import { NotebookTab } from './components/notebook/NotebookTab';
 import { AiSettingsDialog } from './components/ai/AiSettingsDialog';
 import { ActivityTab } from './components/dba/ActivityTab';
 import { SecurityTab } from './components/dba/SecurityTab';
@@ -38,6 +39,7 @@ const TAB_ICON: Record<TabKind, ReactNode> = {
   security: <Shield className="size-3.5 text-sky-300" />,
   compare: <GitCompareArrows className="size-3.5 text-fuchsia-300" />,
   datacompare: <Columns2 className="size-3.5 text-fuchsia-300" />,
+  notebook: <NotebookPen className="size-3.5 text-amber-200" />,
 };
 
 function TabBar() {
@@ -177,6 +179,8 @@ function TabContent({ tab }: { tab: Tab }) {
       return <CompareTab tab={tab} />;
     case 'datacompare':
       return <DataCompareTab tab={tab} />;
+    case 'notebook':
+      return <NotebookTab tab={tab} />;
   }
 }
 

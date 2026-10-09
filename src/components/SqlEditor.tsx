@@ -53,10 +53,12 @@ interface Props {
   readOnly?: boolean;
   placeholder?: string;
   minimal?: boolean;
+  /** Grow with the content instead of filling the parent (notebook cells). */
+  autoHeight?: boolean;
 }
 
 export const SqlEditor = forwardRef<ReactCodeMirrorRef, Props>(function SqlEditor(
-  { value, onChange, kind, schema, onRun, readOnly, placeholder, minimal },
+  { value, onChange, kind, schema, onRun, readOnly, placeholder, minimal, autoHeight },
   ref,
 ) {
   const extensions = useMemo(() => {
@@ -100,8 +102,9 @@ export const SqlEditor = forwardRef<ReactCodeMirrorRef, Props>(function SqlEdito
       editable={!readOnly}
       placeholder={placeholder}
       theme="none"
-      height="100%"
-      className="h-full"
+      height={autoHeight ? undefined : '100%'}
+      minHeight={autoHeight ? '60px' : undefined}
+      className={autoHeight ? undefined : 'h-full'}
       basicSetup={{
         lineNumbers: !minimal,
         foldGutter: !minimal,

@@ -14,6 +14,7 @@ import type {
   SchemaSnapshot,
   TableRef,
 } from './types.ts';
+import type { Notebook, NotebookSummary } from './notebook.ts';
 import type { AiRequest, AiResponse, AiSettings, AiState } from './ai.ts';
 import type { ApiKeyInfo, IntegrationsState, KeyAccess, RequestLogEntry, SavedEndpoint, ServerSettings } from './integrations.ts';
 
@@ -71,6 +72,12 @@ export interface Api {
   saveAiSettings(patch: Partial<AiSettings>, key?: string): Promise<AiState>;
   aiModels(): Promise<string[]>;
   ask(req: AiRequest): Promise<AiResponse>;
+
+  /** SQL notebooks. */
+  listNotebooks(): Promise<NotebookSummary[]>;
+  getNotebook(id: string): Promise<Notebook>;
+  saveNotebook(nb: Notebook): Promise<Notebook>;
+  deleteNotebook(id: string): Promise<void>;
 
   /** Native dialogs (implemented in the Electron main process). */
   pickSqliteFile(mode: 'open' | 'create'): Promise<string | null>;

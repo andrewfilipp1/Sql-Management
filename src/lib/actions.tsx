@@ -12,6 +12,7 @@ import {
   FileUp,
   GitCompareArrows,
   GitFork,
+  NotebookPen,
   Pencil,
   Play,
   Plus,
@@ -33,6 +34,7 @@ import {
 import type { MenuItem } from '../components/ui';
 import { api } from './api';
 import { useStore } from './store';
+import { uid } from './utils';
 import { dbKey, nodeId } from './utils';
 
 const S = useStore.getState;
@@ -81,7 +83,47 @@ export function databaseToolsMenu(connId: string, database: string, kind: DbKind
     { label: 'Backup & restore…', icon: icon(DatabaseBackup), onClick: () => S().openDbDialog({ kind: 'backup', connId, database }) },
     { label: 'Documentation…', icon: icon(BookOpen), onClick: () => S().openDbDialog({ kind: 'docs', connId, database }) },
     { label: 'Schema compare', icon: icon(GitCompareArrows), onClick: () => openCompare(connId, database) },
+    { label: 'New notebook', icon: icon(NotebookPen), onClick: () => void newNotebook(connId, database) },
   ];
+}
+
+export function openNotebook(nb: { id: string; name: string; connId: string; database: string }) {
+  const open = S().tabs.find((t) => t.kind === 'notebook' && t.notebookId === nb.id);
+  if (open) return S().setActiveTab(open.id);
+  S().openTab({ kind: 'notebook', connId: nb.connId, database: nb.database, title: nb.name, notebookId: nb.id }, { dedupe: false });
+}
+
+export async function newNotebook(connId: string, database: string) {
+  try {
+    const n = (await api.listNotebooks()).length + 1;
+    const nb = await api.saveNotebook({
+      id: '',
+      name: `Notebook ${n}`,
+      connId,
+      database,
+      updatedAt: '',
+      cells: [
+        { id: uid(), kind: 'markdown', source: '## Notes\nDescribe what this notebook is for.' },
+        { id: uid(), kind: 'sql', source: '' },
+      ],
+    });
+    openNotebook(nb);
+  } catch (e) {
+    S().toast((e as Error).message, 'error');
+  }
+}
+
+/** Saved notebooks for the sidebar menu. */
+export async function notebooksMenu(): Promise<MenuItem[]> {
+  const list = await api.listNotebooks().catch(() => []);
+  const conns = S().connections;
+  if (!list.length) return [{ label: 'No notebooks yet — use a database’s Tools menu', disabled: true }];
+  return list.slice(0, 20).map((nb) => ({
+    label: nb.name,
+    hint: conns.find((c) => c.id === nb.connId)?.name ?? 'missing connection',
+    icon: <NotebookPen className="size-3.5" />,
+    onClick: () => openNotebook(nb),
+  }));
 }
 
 export function refreshSchema(connId: string, database: string) {
