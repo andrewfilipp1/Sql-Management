@@ -348,7 +348,7 @@ function openApiDoc(key: ApiKeyInfo) {
   }
   return {
     openapi: '3.1.0',
-    info: { title: 'SchemaScope local API', version: APP_VERSION },
+    info: { title: 'SQL Graphic Tool local API', version: APP_VERSION },
     servers: [{ url: `http://127.0.0.1:${settings.port}` }],
     security: [{ bearer: [] }],
     components: {

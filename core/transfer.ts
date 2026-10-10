@@ -195,7 +195,7 @@ export async function writeDatabaseScript(connId: string, database: string, opts
   const sep = kind === 'mssql' ? '\nGO\n\n' : '\n\n';
   let rowsWritten = 0;
   try {
-    await write(`-- SchemaScope script: ${cfg.name} / ${database} (${kind})\n-- Generated ${new Date().toISOString()}\n-- Tables are ordered so referenced tables are created first.\n\n`);
+    await write(`-- SQL Graphic Tool script: ${cfg.name} / ${database} (${kind})\n-- Generated ${new Date().toISOString()}\n-- Tables are ordered so referenced tables are created first.\n\n`);
     for (const t of tables) await write((await d.getDdl(t)).trim() + sep);
     if (opts.includeData) {
       for (const t of tables) {

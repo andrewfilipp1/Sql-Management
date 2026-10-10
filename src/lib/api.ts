@@ -21,7 +21,7 @@ export const api = new Proxy({} as Api, {
   get(_target, method: string) {
     return async (...args: unknown[]) => {
       const bridge = window.schemascope;
-      if (!bridge) throw new Error('SchemaScope must run inside its desktop app (window.schemascope is missing).');
+      if (!bridge) throw new Error('SQL Graphic Tool must run inside its desktop app (window.schemascope is missing).');
       const r = await bridge.invoke(method as ApiMethod, ...args);
       if (!r.ok) throw Object.assign(new Error(r.error), { code: r.code, details: r.details });
       return r.data;

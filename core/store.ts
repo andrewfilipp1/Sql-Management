@@ -17,6 +17,8 @@ export interface SecretCodec {
   available(): boolean;
   encrypt(plain: string): Buffer;
   decrypt(data: Buffer): string;
+  /** Decrypts data written under the app's previous name (macOS keychain key), or null. */
+  decryptLegacy?(data: Buffer): string | null;
 }
 let codec: SecretCodec | null = null;
 export function setSecretCodec(c: SecretCodec) {
@@ -37,7 +39,15 @@ export function encodeSecret(v: string): string {
 export function decodeSecret(v: string): { value: string; legacy: boolean } {
   if (!v.startsWith(ENC_PREFIX)) return { value: v, legacy: true };
   if (!codec?.available()) throw new Error('Stored credentials are encrypted but the OS keychain is not available');
-  return { value: codec.decrypt(Buffer.from(v.slice(ENC_PREFIX.length), 'base64')), legacy: false };
+  const data = Buffer.from(v.slice(ENC_PREFIX.length), 'base64');
+  try {
+    return { value: codec.decrypt(data), legacy: false };
+  } catch (e) {
+    // Saved by the app under its old name: read it once with the old key; callers re-save it with the new one.
+    const old = codec.decryptLegacy?.(data);
+    if (old == null) throw e;
+    return { value: old, legacy: true };
+  }
 }
 
 let cache: ConnectionConfig[] | null = null;

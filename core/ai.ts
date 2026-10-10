@@ -41,8 +41,14 @@ function save() {
 }
 
 function apiKey(): string | undefined {
-  const k = load().key;
-  return k ? decodeSecret(k).value : undefined;
+  const s = load();
+  if (!s.key) return undefined;
+  const d = decodeSecret(s.key);
+  if (d.legacy) {
+    s.key = encodeSecret(d.value); // migrate to the current keychain key
+    save();
+  }
+  return d.value;
 }
 
 export function aiState(): AiState {
@@ -139,7 +145,7 @@ export function schemaContext(s: SchemaSnapshot, hint: string): string {
 
 function systemRules(kind: DbKind, database: string): string {
   return [
-    `You are the SQL assistant inside SchemaScope, a database management tool. The user is connected to a ${DIALECT[kind]} database named "${database}".`,
+    `You are the SQL assistant inside SQL Graphic Tool, a database management tool. The user is connected to a ${DIALECT[kind]} database named "${database}".`,
     `Write SQL for ${DIALECT[kind]} only, using the exact table and column names from the schema below. If something the user asks for is not in the schema, say so instead of inventing names.`,
     'Put SQL in a single ```sql code block. Keep explanations short and concrete.',
     'Your SQL is shown to the user in an editor; it is never run automatically. For statements that change data or structure, mention what they will change.',

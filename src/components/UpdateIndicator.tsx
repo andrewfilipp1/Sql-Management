@@ -14,7 +14,7 @@ export function UpdateIndicator() {
     api.updateState().then(setState, () => undefined);
     return window.schemascope?.onUpdate(setState);
   }, []);
-  if (!state) return <span>SchemaScope</span>;
+  if (!state) return <span>SQL Graphic Tool</span>;
 
   const has = state.phase === 'available' || state.phase === 'downloading' || state.phase === 'ready';
   const run = (p: Promise<UpdateState>) => p.then(setState, () => undefined);
@@ -37,7 +37,7 @@ export function UpdateIndicator() {
           </motion.button>
         ) : (
           <motion.button key="version" initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={() => setOpen(true)} className="hover:text-fg" title="Check for updates">
-            SchemaScope {state.currentVersion}
+            SQL Graphic Tool {state.currentVersion}
           </motion.button>
         )}
       </AnimatePresence>
@@ -45,7 +45,7 @@ export function UpdateIndicator() {
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title={has ? `SchemaScope ${state.version} is available` : 'Updates'}
+        title={has ? `SQL Graphic Tool ${state.version} is available` : 'Updates'}
         icon={<ArrowUpCircle className="size-4" />}
         width={520}
         footer={

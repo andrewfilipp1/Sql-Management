@@ -68,10 +68,10 @@
     "better-sqlite3@13.0.3": true
   },
   "main": "dist-electron/main.cjs",
-  "author": "SchemaScope",
+  "author": "SQL Graphic Tool",
   "build": {
     "appId": "com.schemascope.app",
-    "productName": "SchemaScope",
+    "productName": "SQL Graphic Tool",
     "directories": {
       "output": "release"
     },
@@ -90,13 +90,13 @@
         "zip"
       ],
       "category": "public.app-category.developer-tools",
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
+      "artifactName": "SQL-Graphic-Tool-${version}-${arch}.${ext}"
     },
     "win": {
       "target": [
         "nsis"
       ],
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "SQL-Graphic-Tool-Setup-${version}.${ext}"
     },
     "publish": [
       {

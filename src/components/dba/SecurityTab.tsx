@@ -286,7 +286,7 @@ function CreatePrincipalDialog({
           </Field>
         )}
         {what === 'user' && (
-          <Field label="Password" hint={pw && pwProblem ? <span className="text-warn">{pwProblem}</span> : 'Shown in the SQL review; it is not saved by SchemaScope.'}>
+          <Field label="Password" hint={pw && pwProblem ? <span className="text-warn">{pwProblem}</span> : 'Shown in the SQL review; it is not saved by SQL Graphic Tool.'}>
             <Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="new-password" />
           </Field>
         )}

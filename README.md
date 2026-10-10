@@ -1,4 +1,4 @@
-# SchemaScope
+# SQL Graphic Tool
 
 Visual database manager for **SQLite, SQL Server / Express, PostgreSQL and MySQL / MariaDB**, built as a cross-platform
 desktop app (macOS & Windows) with Electron.

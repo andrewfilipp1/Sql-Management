@@ -132,7 +132,7 @@ async function callTool(key: ApiKeyInfo, name: string, args: Record<string, unkn
       } catch (e) {
         if ((e as CodedError).code !== 'CONFIRM_REQUIRED') throw e;
         const items = ((e as CodedError).details as string[]).join('; ');
-        throw new HttpError(403, `Refused: destructive statement on a production connection (${items}). Run it from the SchemaScope app if it is intended.`);
+        throw new HttpError(403, `Refused: destructive statement on a production connection (${items}). Run it from the SQL Graphic Tool app if it is intended.`);
       }
       const r = await coreApi.query(c.id, db, sql);
       const first = r.results.find((x) => x.columns.length);
@@ -170,7 +170,7 @@ export async function handleMcp(body: unknown, key: ApiKeyInfo): Promise<unknown
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'schemascope', version: '0.2.0' },
         instructions:
-          'SchemaScope gives access to the user’s databases. Call list_connections, then list_tables / describe_table to learn the schema (foreign keys show how tables relate) before writing SQL with run_query.',
+          'SQL Graphic Tool gives access to the user’s databases. Call list_connections, then list_tables / describe_table to learn the schema (foreign keys show how tables relate) before writing SQL with run_query.',
       });
     }
     case 'ping':

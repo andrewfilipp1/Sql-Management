@@ -247,7 +247,7 @@ export function ConnectionDialog() {
             )}
             {auth === 'windows' && (
               <p className="col-span-6 -mt-1 text-[11.5px] text-muted">
-                Signs in as the Windows user running SchemaScope, through the SQL Server ODBC driver (ODBC Driver 18/17 if installed, otherwise the
+                Signs in as the Windows user running SQL Graphic Tool, through the SQL Server ODBC driver (ODBC Driver 18/17 if installed, otherwise the
                 driver built into Windows).
               </p>
             )}

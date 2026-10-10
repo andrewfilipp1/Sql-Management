@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, safeStorage, shell } from 'electron';
+import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { IPC_CHANNEL, type Api, type ApiMethod, type IpcResult } from '../shared/ipc.ts';
@@ -13,11 +15,44 @@ import { backupToFile, restoreFromFile } from '../core/backup.ts';
 import { getConnection } from '../core/store.ts';
 
 const DEV_URL = process.env.SCHEMASCOPE_DEV_URL;
-// Separate data folder (used by the smoke test so it never touches the user's connections).
-if (process.env.SCHEMASCOPE_USER_DATA) app.setPath('userData', process.env.SCHEMASCOPE_USER_DATA);
+export const APP_NAME = 'SQL Graphic Tool';
+// The app was first released as "SchemaScope": keep using that data folder so connections, notebooks and
+// settings survive the rename. (Saved passwords are migrated by legacyDecrypt below.)
+const OLD_NAME = 'SchemaScope';
+app.setPath('userData', process.env.SCHEMASCOPE_USER_DATA || path.join(app.getPath('appData'), OLD_NAME));
 const isMac = process.platform === 'darwin';
 
 let win: BrowserWindow | null = null;
+
+/**
+ * macOS: Electron's safeStorage key lives in the keychain item "<app name> Safe Storage", so after the rename
+ * secrets saved by "SchemaScope" need that old key. It is read once (macOS asks the user to allow it) and
+ * secrets are re-encrypted with the new key. Format (Chromium OSCrypt): "v10" + AES-128-CBC, key from
+ * PBKDF2-SHA1(password, "saltysalt", 1003), IV of 16 spaces. Windows (DPAPI) and Linux are unaffected.
+ */
+let legacyKey: Buffer | null | undefined;
+function decryptLegacy(data: Buffer): string | null {
+  if (!isMac || data.subarray(0, 3).toString() !== 'v10') return null;
+  if (legacyKey === undefined) {
+    try {
+      const password = execFileSync('/usr/bin/security', ['find-generic-password', '-w', '-s', `${OLD_NAME} Safe Storage`, '-a', `${OLD_NAME} Key`], {
+        encoding: 'utf8',
+        timeout: 120_000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+      legacyKey = crypto.pbkdf2Sync(password, 'saltysalt', 1003, 16, 'sha1');
+    } catch {
+      legacyKey = null; // no old item, or the user denied access: those passwords must be entered again
+    }
+  }
+  if (!legacyKey) return null;
+  try {
+    const d = crypto.createDecipheriv('aes-128-cbc', legacyKey, Buffer.alloc(16, ' '));
+    return Buffer.concat([d.update(data.subarray(3)), d.final()]).toString('utf8');
+  } catch {
+    return null;
+  }
+}
 
 const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
 
@@ -119,7 +154,7 @@ function createWindow() {
     minHeight: 620,
     show: false,
     backgroundColor: '#070912',
-    title: 'SchemaScope',
+    title: APP_NAME,
     // macOS: traffic lights over our own title bar. Windows/Linux: native buttons drawn over it.
     titleBarStyle: 'hidden',
     ...(isMac
@@ -160,6 +195,7 @@ app.whenReady().then(() => {
     available: () => safeStorage.isEncryptionAvailable(),
     encrypt: (plain) => safeStorage.encryptString(plain),
     decrypt: (data) => safeStorage.decryptString(data),
+    decryptLegacy,
   });
   try {
     ensureDemoDatabase();

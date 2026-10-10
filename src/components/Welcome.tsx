@@ -39,7 +39,7 @@ export function Welcome() {
           >
             <Waypoints className="size-8 text-white" />
           </motion.div>
-          <h1 className="glow-text text-3xl font-semibold tracking-tight">SchemaScope</h1>
+          <h1 className="glow-text text-3xl font-semibold tracking-tight">SQL Graphic Tool</h1>
           <p className="mx-auto mt-3 max-w-md text-[14px] text-muted">
             See how your database fits together. Explore tables and relationships visually, browse and edit data, and run SQL — on
             SQLite, SQL Server, PostgreSQL and MySQL.

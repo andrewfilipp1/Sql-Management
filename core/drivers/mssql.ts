@@ -79,7 +79,7 @@ export class MssqlDriver extends Driver {
       Driver: `{${driver}}`,
       Server: odbcValue(server),
       Trusted_Connection: 'yes',
-      'Application Name': 'SchemaScope',
+      'Application Name': 'SQL Graphic Tool',
     };
     if (this.database) parts.Database = odbcValue(this.database);
     if (driver !== 'SQL Server') {
@@ -122,7 +122,7 @@ export class MssqlDriver extends Driver {
         trustServerCertificate: this.cfg.trustServerCertificate ?? true,
         // Read date/time values as stored: tedious then builds Dates in UTC, which serializeValue prints without shifting.
         useUTC: true,
-        appName: 'SchemaScope',
+        appName: 'SQL Graphic Tool',
       },
     };
   }

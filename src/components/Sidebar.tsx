@@ -463,7 +463,7 @@ export function Sidebar() {
         >
           <Waypoints className="size-3.5 text-white" />
         </motion.div>
-        <span className="flex-1 text-[13px] font-semibold tracking-tight">SchemaScope</span>
+        <span className="flex-1 text-[13px] font-semibold tracking-tight">SQL Graphic Tool</span>
         <IconButton label="Integrations: REST API, endpoints, MCP" className="no-drag" onClick={() => useStore.getState().openIntegrations()}>
           <Cable className="size-4" />
         </IconButton>

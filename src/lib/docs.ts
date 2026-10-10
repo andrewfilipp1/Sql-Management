@@ -70,7 +70,7 @@ export function docsHtml(s: SchemaSnapshot, title: string): string {
 <nav><strong>Tables</strong>${tables.map((t) => `<a href="#${anchor(t)}">${esc(nodeId(t))}</a>`).join('')}</nav>
 <main>
   <h1>${esc(title)}</h1>
-  <p class="muted">${esc(KIND_LABEL[s.kind])} · ${tables.length} tables and views · ${rels.length} relationships · generated ${esc(new Date().toISOString().slice(0, 16).replace('T', ' '))} by SchemaScope</p>
+  <p class="muted">${esc(KIND_LABEL[s.kind])} · ${tables.length} tables and views · ${rels.length} relationships · generated ${esc(new Date().toISOString().slice(0, 16).replace('T', ' '))} by SQL Graphic Tool</p>
   ${tables.map(section).join('\n')}
 </main></div></body></html>`;
 }

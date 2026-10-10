@@ -26,7 +26,7 @@ export class PostgresDriver extends Driver {
       ssl: this.cfg.ssl ? { rejectUnauthorized: false } : undefined,
       max: 5,
       connectionTimeoutMillis: 10_000,
-      application_name: 'SchemaScope',
+      application_name: 'SQL Graphic Tool',
       // Enforced by the server: every transaction in a read-only connection is READ ONLY.
       options: this.cfg.readOnly ? '-c default_transaction_read_only=on' : undefined,
     });

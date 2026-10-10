@@ -1,5 +1,5 @@
 // Smoke test of the packaged app (run after `electron-builder --dir`), used by CI on Windows and macOS.
-// Launches SchemaScope with a throw-away data folder and checks, through the DevTools protocol:
+// Launches SQL Graphic Tool with a throw-away data folder and checks, through the DevTools protocol:
 // window + preload security, SQLite (native module) through IPC, schema introspection and the local API server.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -8,8 +8,8 @@ import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..');
 const candidates = {
-  win32: [path.join(root, 'release', 'win-unpacked', 'SchemaScope.exe')],
-  darwin: ['mac-arm64', 'mac', 'mac-universal'].map((d) => path.join(root, 'release', d, 'SchemaScope.app', 'Contents', 'MacOS', 'SchemaScope')),
+  win32: [path.join(root, 'release', 'win-unpacked', 'SQL Graphic Tool.exe')],
+  darwin: ['mac-arm64', 'mac', 'mac-universal'].map((d) => path.join(root, 'release', d, 'SQL Graphic Tool.app', 'Contents', 'MacOS', 'SQL Graphic Tool')),
   linux: [path.join(root, 'release', 'linux-unpacked', 'schemascope')],
 }[process.platform] ?? [];
 const exe = process.argv[2] ?? candidates.find((p) => fs.existsSync(p));
@@ -56,8 +56,8 @@ try {
   const evaluate = async (expr) => (await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true })).result?.result?.value;
   const ipc = (m, ...a) => evaluate(`window.schemascope.invoke(${JSON.stringify(m)}, ...${JSON.stringify(a)})`);
 
-  for (let i = 0; i < 40 && !(await evaluate(`document.body?.innerText.includes('SchemaScope')`)); i++) await sleep(250);
-  check('window renders the UI', await evaluate(`document.body.innerText.includes('SchemaScope')`));
+  for (let i = 0; i < 40 && !(await evaluate(`document.body?.innerText.includes('SQL Graphic Tool')`)); i++) await sleep(250);
+  check('window renders the UI', await evaluate(`document.body.innerText.includes('SQL Graphic Tool')`));
   const sec = await evaluate(`({ bridge: typeof window.schemascope?.invoke, require: typeof window.require, process: typeof window.process })`);
   check('renderer has the bridge and no Node.js access', sec.bridge === 'function' && sec.require === 'undefined' && sec.process === 'undefined', JSON.stringify(sec));
 
