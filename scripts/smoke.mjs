@@ -104,6 +104,8 @@ try {
       check('Windows auth: DDL, Unicode insert and query', t.ok && Number(t.data.results.at(-1).rows[0][0]) === 2 && Number(t.data.results.at(-1).rows[0][1]) === 15.5, t.ok ? JSON.stringify(t.data.results.at(-1).rows[0]) : t.error);
       const sch = await ipc('schema', saved.data.id, db, true);
       check('Windows auth: schema introspection', sch.ok && sch.data.tables.some((x) => x.name === 't' && x.columns.length === 3), sch.ok ? `${sch.data.tables.length} tables` : sch.error);
+      const filtered = await ipc('rows', saved.data.id, db, { table: { schema: 'dbo', name: 't' }, offset: 0, limit: 10, filters: [{ column: 'name', op: 'eq', value: 'Nikos' }] });
+      check('Windows auth: parameterised read (filters)', filtered.ok && filtered.data.rows.length === 1, filtered.ok ? `${filtered.data.rows.length} row(s)` : filtered.error);
       const created = await ipc('createDatabase', saved.data.id, 'smoke_created', { collation: 'Greek_CI_AS' });
       check('New database on SQL Server (Greek collation)', created.ok && created.data.databases.includes('smoke_created'), created.ok ? '' : created.error);
       const bak = path.join(os.tmpdir(), `smoke-${Date.now()}.bak`);
