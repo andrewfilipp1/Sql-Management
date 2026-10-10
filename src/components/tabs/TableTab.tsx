@@ -45,6 +45,7 @@ import { cn, findTable, formatMs, formatNumber, nodeId, relationsOf, sameTable }
 import { DataGrid } from '../DataGrid';
 import { SchemaVisualizer } from '../diagram/SchemaVisualizer';
 import { SqlEditor } from '../SqlEditor';
+import { TypeInput } from '../TypeInput';
 import { Badge, Button, Checkbox, EmptyState, IconButton, Input, Segmented, Select, Spinner, spring, useContextMenu } from '../ui';
 
 export function TableTab({ tab }: { tab: Tab }) {
@@ -497,12 +498,9 @@ function StructureView({ tab, table, kind, schema }: { tab: Tab; table: TableInf
           >
             <Plus className="size-4 text-faint" />
             <Input value={newCol.name} onChange={(e) => setNewCol({ ...newCol, name: e.target.value })} placeholder="new_column" className="h-7 w-44 font-mono text-xs" />
-            <Input value={newCol.type} onChange={(e) => setNewCol({ ...newCol, type: e.target.value })} list={`types-${tab.id}`} className="h-7 w-40 font-mono text-xs" />
-            <datalist id={`types-${tab.id}`}>
-              {COMMON_TYPES[kind].map((t) => (
-                <option key={t} value={t} />
-              ))}
-            </datalist>
+            <div className="w-40">
+              <TypeInput value={newCol.type} onChange={(type) => setNewCol({ ...newCol, type })} types={COMMON_TYPES[kind]} className="h-7 font-mono text-xs" />
+            </div>
             <Input value={newCol.default} onChange={(e) => setNewCol({ ...newCol, default: e.target.value })} placeholder="default" className="h-7 w-32 font-mono text-xs" />
             <Checkbox checked={newCol.nullable} onChange={(v) => setNewCol({ ...newCol, nullable: v })} label="nullable" />
             <div className="flex-1" />

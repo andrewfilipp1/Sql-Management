@@ -7,6 +7,7 @@ import { api } from '../lib/api';
 import { useConnection, useSchema, useStore } from '../lib/store';
 import { cn, nodeId, resolveRef } from '../lib/utils';
 import { SqlEditor } from './SqlEditor';
+import { TypeInput } from './TypeInput';
 import { Button, Field, IconButton, Input, Modal, Select, spring } from './ui';
 
 interface FkRow {
@@ -98,11 +99,6 @@ export function TableDesigner() {
         </>
       }
     >
-      <datalist id="designer-types">
-        {types.map((t) => (
-          <option key={t} value={t} />
-        ))}
-      </datalist>
       <div className="grid grid-cols-[1fr_200px] gap-3">
         <Field label="Table name">
           <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="customers" />
@@ -146,7 +142,7 @@ export function TableDesigner() {
               className="grid grid-cols-[1.3fr_1.2fr_44px_56px_56px_1fr_32px] items-center gap-2 border-b border-line/60 px-3 py-1.5 last:border-0"
             >
               <Input value={c.name} onChange={(e) => patchCol(i, { name: e.target.value })} placeholder="column_name" className="h-7 font-mono text-xs" />
-              <Input value={c.type} onChange={(e) => patchCol(i, { type: e.target.value })} list="designer-types" className="h-7 font-mono text-xs" />
+              <TypeInput value={c.type} onChange={(type) => patchCol(i, { type })} types={types} className="h-7 font-mono text-xs" />
               <button
                 onClick={() => patchCol(i, { primaryKey: !c.primaryKey, nullable: c.primaryKey ? c.nullable : false })}
                 className={cn('mx-auto flex size-7 items-center justify-center rounded-md transition-all', c.primaryKey ? 'bg-amber-400/15 text-pk shadow-[0_0_12px_-3px_rgb(251_191_36/0.8)]' : 'text-faint hover:text-muted')}
