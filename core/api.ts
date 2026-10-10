@@ -10,6 +10,10 @@ import { applyServerSettings, requestLog, serverStatus } from './httpApi.ts';
 import { runEndpoint } from './endpoints.ts';
 import { bulkInsert, importCsv } from './transfer.ts';
 import { backupInfo } from './backup.ts';
+import { discardBak, inspectBak, restoreBak } from './bak.ts';
+import { checkLocalServer, installLocalServer, localServerState } from './localServer.ts';
+import { createDatabaseSql } from '../shared/dialect.ts';
+import { databaseNameProblem } from '../shared/localServer.ts';
 import { deleteNotebook, getNotebook, listNotebooks, saveNotebook } from './notebooks.ts';
 import { aiState, askAi, listAiModels, saveAiSettings } from './ai.ts';
 import { splitGoBatches, splitStatements } from './util.ts';
@@ -25,7 +29,8 @@ export type NativeMethods =
   | 'updateState'
   | 'checkForUpdates'
   | 'downloadUpdate'
-  | 'installUpdate';
+  | 'installUpdate'
+  | 'pickBak';
 export type CoreApi = Omit<Api, NativeMethods>;
 
 // Introspection can be costly on large databases, so keep one snapshot per live driver.
@@ -224,6 +229,42 @@ export const coreApi: CoreApi = {
 
   async ask(req) {
     return askAi(req, await schemaOf(await getDriver(req.connId, req.database)));
+  },
+
+  async createDatabase(connId, name, opts) {
+    const cfg = getConnection(connId);
+    if (!cfg) throw new HttpError(404, 'Connection not found');
+    if (cfg.kind === 'sqlite') throw new HttpError(400, 'SQLite databases are files — use “Local file” instead.');
+    if (cfg.readOnly) throw new CodedError('READ_ONLY', 'This connection is read-only.');
+    const problem = databaseNameProblem(name);
+    if (problem) throw new HttpError(400, problem);
+    const d = await getDriver(connId, defaultDatabaseName(cfg));
+    await d.exec(createDatabaseSql(cfg.kind, name, opts ?? {}));
+    return { databases: await d.listDatabases() };
+  },
+
+  async localServerState() {
+    return localServerState();
+  },
+
+  async checkLocalServer() {
+    return checkLocalServer();
+  },
+
+  async installLocalServer(opts) {
+    return installLocalServer(opts);
+  },
+
+  async inspectBakOnServer(connId, serverPath) {
+    return inspectBak(connId, { serverPath });
+  },
+
+  async restoreBak(token, newName) {
+    return restoreBak(token, newName);
+  },
+
+  async discardBak(token) {
+    await discardBak(token);
   },
 
   async listNotebooks() {

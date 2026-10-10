@@ -24,6 +24,8 @@ import {
   Waypoints,
   Sparkles,
   NotebookPen,
+  DatabaseZap,
+  Server,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { PublicConnection, TableInfo } from '../../shared/types';
@@ -463,21 +465,30 @@ export function Sidebar() {
         >
           <Waypoints className="size-3.5 text-white" />
         </motion.div>
-        <span className="flex-1 text-[13px] font-semibold tracking-tight">SQL Graphic Tool</span>
-        <IconButton label="Integrations: REST API, endpoints, MCP" className="no-drag" onClick={() => useStore.getState().openIntegrations()}>
-          <Cable className="size-4" />
-        </IconButton>
-        <IconButton label="Notebooks" className="no-drag" onClick={(e) => void notebooksMenu().then((items) => openMenu(e, items))}>
-          <NotebookPen className="size-4" />
-        </IconButton>
-        <IconButton label="AI assistant settings" className="no-drag" onClick={() => useStore.getState().openAiSettings(true)}>
-          <Sparkles className="size-4" />
-        </IconButton>
+        <span className="flex-1 truncate text-[13px] font-semibold tracking-tight whitespace-nowrap">SQL Graphic Tool</span>
       </div>
 
       <div className="flex items-center gap-2 px-3 pt-1 pb-2">
         <span className="flex-1 text-[11px] font-semibold tracking-wider text-muted uppercase">Connections</span>
-        <IconButton label="New connection" onClick={() => openConnectionDialog()}>
+        <IconButton label="Integrations: REST API, endpoints, MCP" onClick={() => useStore.getState().openIntegrations()}>
+          <Cable className="size-4" />
+        </IconButton>
+        <IconButton label="Notebooks" onClick={(e) => void notebooksMenu().then((items) => openMenu(e, items))}>
+          <NotebookPen className="size-4" />
+        </IconButton>
+        <IconButton label="AI assistant settings" onClick={() => useStore.getState().openAiSettings(true)}>
+          <Sparkles className="size-4" />
+        </IconButton>
+        <IconButton
+          label="New connection or database"
+          onClick={(e) =>
+            openMenu(e, [
+              { label: 'New connection…', icon: <PlugZap className="size-3.5" />, onClick: () => openConnectionDialog() },
+              { label: 'New database…', icon: <DatabaseZap className="size-3.5" />, onClick: () => useStore.getState().openNewDatabase(true) },
+              { label: 'Local SQL Server…', icon: <Server className="size-3.5" />, onClick: () => useStore.getState().openLocalServer() },
+            ])
+          }
+        >
           <Plus className="size-4" />
         </IconButton>
       </div>

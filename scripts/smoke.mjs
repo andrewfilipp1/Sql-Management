@@ -104,9 +104,20 @@ try {
       check('Windows auth: DDL, Unicode insert and query', t.ok && Number(t.data.results.at(-1).rows[0][0]) === 2 && Number(t.data.results.at(-1).rows[0][1]) === 15.5, t.ok ? JSON.stringify(t.data.results.at(-1).rows[0]) : t.error);
       const sch = await ipc('schema', saved.data.id, db, true);
       check('Windows auth: schema introspection', sch.ok && sch.data.tables.some((x) => x.name === 't' && x.columns.length === 3), sch.ok ? `${sch.data.tables.length} tables` : sch.error);
+      const created = await ipc('createDatabase', saved.data.id, 'smoke_created', { collation: 'Greek_CI_AS' });
+      check('New database on SQL Server (Greek collation)', created.ok && created.data.databases.includes('smoke_created'), created.ok ? '' : created.error);
+      const bak = path.join(os.tmpdir(), `smoke-${Date.now()}.bak`);
+      const bk = await ipc('query', saved.data.id, 'master', `BACKUP DATABASE ${db} TO DISK = N'${bak.replace(/'/g, "''")}' WITH INIT`, { confirmed: true });
+      const info = bk.ok ? await ipc('inspectBakOnServer', saved.data.id, bak) : bk;
+      const restored = info.ok ? await ipc('restoreBak', info.data.token, 'smoke_restored') : info;
+      const n = restored.ok ? await ipc('query', saved.data.id, 'smoke_restored', 'SELECT COUNT(*) FROM t') : restored;
+      check('.bak restored as a new database (Windows paths)', n.ok && Number(n.data.results[0].rows[0][0]) === 2, n.ok ? '' : n.error);
       await ipc('disconnect', saved.data.id);
     }
   }
+
+  const ls = await ipc('checkLocalServer');
+  check('local server check runs', ls.ok && ls.data.steps.length > 0 && !ls.data.busy, ls.ok ? ls.data.steps.map((x) => `${x.id}=${x.status}`).join(' ') : ls.error);
 
   check('no page exceptions', exceptions.length === 0, exceptions.slice(0, 2).join(' / '));
 } catch (e) {

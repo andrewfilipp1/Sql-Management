@@ -11,6 +11,8 @@ desktop app (macOS & Windows) with Electron.
 - **Compare & generate**: schema compare with migration script (also across engines), data compare with sync SQL, test-data generator, documentation (HTML, or Markdown with a Mermaid ER diagram).
 - **Integrations**: local REST API with API keys, saved queries published as endpoints, OpenAPI, and an **MCP server** so AI assistants can explore the schema and query safely.
 - **AI assistant** (optional, bring your own key): write SQL from plain words, explain, optimize and fix queries in a panel next to the editor. Works with Anthropic Claude or any OpenAI-compatible server (Ollama runs free and offline on your computer; Gemini, Groq and OpenRouter have free tiers). Only the schema is sent, never row data, and nothing runs until you press Run.
+- **New databases**: a local SQLite file, a database on any connected server (with collation / encoding), or **set up a local SQL Server with one click** — on macOS it checks and installs Rosetta 2, Docker Desktop and SQL Server 2022 (Express or Developer) in a container on 127.0.0.1; on Windows it installs SQL Server 2022 Express with winget. Whatever is already installed is reported and skipped.
+- **Open .bak files**: restore a SQL Server backup as a new database (shows what the backup contains first; never replaces an existing database).
 - **Notebooks**: SQL and Markdown cells with saved results, bar/line charts, Run all, Markdown export.
 - **Updates**: the app checks GitHub Releases; Windows installs in place, macOS links to the download.
 - **SQL Server sign-in**: SQL logins, Windows accounts (domain user + password, NTLM) on any OS, and integrated Windows authentication (current user, also LocalDB) on Windows.
@@ -53,6 +55,14 @@ git tag v0.2.0 && git push origin v0.2.0
 downloaded until the user clicks **Download**. macOS replaces apps in place only when they are signed, so unsigned
 macOS builds show a link to the release page instead.
 
+### Local SQL Server
+
+Sidebar **+** → *Local SQL Server* (or *New database* → *Set up a local SQL Server*). Each requirement is checked first;
+missing ones are installed after you accept the license terms (Docker Desktop is free for personal use, education and
+small businesses; larger companies need a Docker subscription). Installers that need administrator rights use the
+system's own password / UAC prompt. The `sa` password is random and stored encrypted; the server listens on
+127.0.0.1 only. The container is `sql-graphic-tool-mssql` and keeps its databases in a Docker volume.
+
 ### AI assistant
 
 Sparkles icon in the sidebar → choose a provider. Keys are encrypted with the OS keychain and used only by the main
@@ -90,6 +100,8 @@ core/              Database layer (runs in the main process, no Electron imports
   tunnel.ts        SSH tunnels
   ai.ts            AI assistant: Claude (official SDK) and OpenAI-compatible providers, prompts, limits
   notebooks.ts     Notebook files (userData/notebooks/<id>.json)
+  localServer.ts   One-click local SQL Server (Docker on macOS, winget Express on Windows)
+  bak.ts           Restore SQL Server .bak files as new databases
   pool.ts          One live driver per connection + database
   store.ts         Saved connections (userData/connections.json)
   drivers/

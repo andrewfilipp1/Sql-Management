@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { ArrowRight, Database, Plus, Sparkles, Waypoints } from 'lucide-react';
+import { ArrowRight, Database, DatabaseZap, Plus, Server, Sparkles, Waypoints } from 'lucide-react';
 import { KIND_LABEL } from '../../shared/types';
 import { openDiagram } from '../lib/actions';
 import { useStore } from '../lib/store';
@@ -74,6 +74,12 @@ export function Welcome() {
           <div className="mt-5 flex justify-center gap-2">
             <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => openConnectionDialog()}>
               New connection
+            </Button>
+            <Button icon={<DatabaseZap className="size-4" />} onClick={() => useStore.getState().openNewDatabase(true)} data-testid="welcome-new-db">
+              New database
+            </Button>
+            <Button variant="ghost" icon={<Server className="size-4" />} onClick={() => useStore.getState().openLocalServer()}>
+              Local SQL Server
             </Button>
           </div>
         </motion.div>

@@ -350,3 +350,27 @@ export function mssqlRestoreSql(database: string, file: string): string {
     `ALTER DATABASE ${db} SET MULTI_USER;`,
   ].join('\n');
 }
+
+// ---------------------------------------------------------------- databases
+
+const COLLATION = /^[A-Za-z0-9_]+$/;
+
+/** CREATE DATABASE for server engines. Names are validated by databaseNameProblem and quoted; options are allow-listed. */
+export function createDatabaseSql(kind: DbKind, name: string, opts: { collation?: string; encoding?: string; charset?: string } = {}): string {
+  const db = quoteIdent(kind, name.trim());
+  const collation = opts.collation && COLLATION.test(opts.collation) ? opts.collation : '';
+  switch (kind) {
+    case 'mssql':
+      return `CREATE DATABASE ${db}${collation ? ` COLLATE ${collation}` : ''};`;
+    case 'postgres': {
+      const enc = opts.encoding && COLLATION.test(opts.encoding) ? opts.encoding : 'UTF8';
+      return `CREATE DATABASE ${db} WITH ENCODING ${quoteString(enc)} TEMPLATE template0;`;
+    }
+    case 'mysql': {
+      const cs = opts.charset && COLLATION.test(opts.charset) ? opts.charset : 'utf8mb4';
+      return `CREATE DATABASE ${db} CHARACTER SET ${cs}${collation ? ` COLLATE ${collation}` : ''};`;
+    }
+    default:
+      throw new Error('SQLite databases are files — create one with “Local file”.');
+  }
+}

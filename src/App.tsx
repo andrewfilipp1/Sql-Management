@@ -1,5 +1,5 @@
 import { AnimatePresence, LayoutGroup, motion } from 'motion/react';
-import { Activity, Cable, Columns2, GitCompareArrows, LayoutDashboard, NotebookPen, Shield, Table2, TerminalSquare, Waypoints, X } from 'lucide-react';
+import { Activity, Cable, Columns2, GitCompareArrows, LayoutDashboard, NotebookPen, Server, Shield, Table2, TerminalSquare, Waypoints, X } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
 import { KIND_LABEL } from '../shared/types';
 import { ConnectionDialog } from './components/ConnectionDialog';
@@ -10,6 +10,9 @@ import { IntegrationsTab } from './components/tabs/IntegrationsTab';
 import { EndpointDialog } from './components/EndpointDialog';
 import { NotebookTab } from './components/notebook/NotebookTab';
 import { UpdateIndicator } from './components/UpdateIndicator';
+import { LocalServerTab } from './components/LocalServerTab';
+import { NewDatabaseDialog } from './components/NewDatabaseDialog';
+import { RestoreBakDialog } from './components/RestoreBakDialog';
 import { AiSettingsDialog } from './components/ai/AiSettingsDialog';
 import { ActivityTab } from './components/dba/ActivityTab';
 import { SecurityTab } from './components/dba/SecurityTab';
@@ -41,6 +44,7 @@ const TAB_ICON: Record<TabKind, ReactNode> = {
   compare: <GitCompareArrows className="size-3.5 text-fuchsia-300" />,
   datacompare: <Columns2 className="size-3.5 text-fuchsia-300" />,
   notebook: <NotebookPen className="size-3.5 text-amber-200" />,
+  localserver: <Server className="size-3.5 text-rose-300" />,
 };
 
 function TabBar() {
@@ -182,6 +186,8 @@ function TabContent({ tab }: { tab: Tab }) {
       return <DataCompareTab tab={tab} />;
     case 'notebook':
       return <NotebookTab tab={tab} />;
+    case 'localserver':
+      return <LocalServerTab />;
   }
 }
 
@@ -232,6 +238,8 @@ export function App() {
       <TableDesigner />
       <EndpointDialog />
       <AiSettingsDialog />
+      <NewDatabaseDialog />
+      <RestoreBakDialog />
       <ImportDialog />
       <ExportDialog />
       <BackupDialog />

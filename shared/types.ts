@@ -23,6 +23,8 @@ export interface ConnectionConfig {
   authType?: MssqlAuth;
   /** Windows domain for NTLM. */
   domain?: string;
+  /** Set on the connection created by the one-click local server ('docker' container or 'express' install). */
+  localServer?: 'docker' | 'express';
   encrypt?: boolean;
   trustServerCertificate?: boolean;
   ssl?: boolean;
@@ -245,4 +247,18 @@ export interface BackupInfo {
   /** SQL Server's default backup folder (on the server). */
   defaultDir?: string;
   note?: string;
+}
+
+/** What a SQL Server .bak file contains (RESTORE HEADERONLY / FILELISTONLY). */
+export interface BakInfo {
+  /** Handle for restoreBak; the file stays where the server can read it until then. */
+  token: string;
+  fileName: string;
+  databaseName: string;
+  backupDate?: string;
+  serverVersion?: string;
+  sizeBytes?: number;
+  backupSets: number;
+  files: { logicalName: string; type: string; sizeBytes: number }[];
+  suggestedName: string;
 }

@@ -1,5 +1,6 @@
 import {
   Activity,
+  Archive,
   BookOpen,
   Code2,
   Columns2,
@@ -84,6 +85,7 @@ export function databaseToolsMenu(connId: string, database: string, kind: DbKind
     { label: 'Documentation…', icon: icon(BookOpen), onClick: () => S().openDbDialog({ kind: 'docs', connId, database }) },
     { label: 'Schema compare', icon: icon(GitCompareArrows), onClick: () => openCompare(connId, database) },
     { label: 'New notebook', icon: icon(NotebookPen), onClick: () => void newNotebook(connId, database) },
+    ...(kind === 'mssql' ? [{ label: 'Restore .bak as new database…', icon: icon(Archive), onClick: () => S().openRestoreBak(connId) }] : []),
   ];
 }
 

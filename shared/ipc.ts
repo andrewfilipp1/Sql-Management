@@ -1,5 +1,6 @@
 import type {
   ActivitySession,
+  BakInfo,
   ApplyChangesRequest,
   BackupInfo,
   RawPlan,
@@ -15,6 +16,7 @@ import type {
   TableRef,
 } from './types.ts';
 import type { UpdateState } from './update.ts';
+import type { CreateDatabaseOptions, LocalEdition, LocalServerState } from './localServer.ts';
 import type { Notebook, NotebookSummary } from './notebook.ts';
 import type { AiRequest, AiResponse, AiSettings, AiState } from './ai.ts';
 import type { ApiKeyInfo, IntegrationsState, KeyAccess, RequestLogEntry, SavedEndpoint, ServerSettings } from './integrations.ts';
@@ -74,6 +76,18 @@ export interface Api {
   aiModels(): Promise<string[]>;
   ask(req: AiRequest): Promise<AiResponse>;
 
+  /** New databases and the one-click local SQL Server. */
+  createDatabase(connId: string, name: string, opts: CreateDatabaseOptions): Promise<{ databases: string[] }>;
+  localServerState(): Promise<LocalServerState>;
+  checkLocalServer(): Promise<LocalServerState>;
+  installLocalServer(opts: { edition?: LocalEdition; acceptLicenses: boolean }): Promise<LocalServerState>;
+
+  /** Restore a SQL Server .bak as a new database. `pickBak` asks for a local file (main process). */
+  pickBak(connId: string): Promise<BakInfo | null>;
+  inspectBakOnServer(connId: string, serverPath: string): Promise<BakInfo>;
+  restoreBak(token: string, newName: string): Promise<{ database: string }>;
+  discardBak(token: string): Promise<void>;
+
   /** SQL notebooks. */
   listNotebooks(): Promise<NotebookSummary[]>;
   getNotebook(id: string): Promise<Notebook>;
@@ -87,7 +101,7 @@ export interface Api {
   installUpdate(): Promise<void>;
 
   /** Native dialogs (implemented in the Electron main process). */
-  pickSqliteFile(mode: 'open' | 'create'): Promise<string | null>;
+  pickSqliteFile(mode: 'open' | 'create', defaultName?: string): Promise<string | null>;
   saveTextFile(defaultName: string, content: string): Promise<boolean>;
 }
 
@@ -100,6 +114,8 @@ export interface Bridge {
   invoke(method: ApiMethod, ...args: unknown[]): Promise<IpcResult<unknown>>;
   /** Update status pushed by the main process. Returns an unsubscribe function. */
   onUpdate(cb: (state: UpdateState) => void): () => void;
+  /** Local server setup progress pushed by the main process. */
+  onLocalServer(cb: (state: LocalServerState) => void): () => void;
   platform: string;
 }
 

@@ -5,7 +5,7 @@ import type { SavedEndpoint } from '../../shared/integrations';
 import { api, type ConnectionInput } from './api';
 import { dbKey, uid } from './utils';
 
-export type TabKind = 'query' | 'table' | 'diagram' | 'dashboard' | 'integrations' | 'activity' | 'security' | 'compare' | 'datacompare' | 'notebook';
+export type TabKind = 'query' | 'table' | 'diagram' | 'dashboard' | 'integrations' | 'activity' | 'security' | 'compare' | 'datacompare' | 'notebook' | 'localserver';
 export type TableView = 'data' | 'structure' | 'relations' | 'ddl';
 
 export type DbDialogKind = 'import' | 'export' | 'backup' | 'mock' | 'docs';
@@ -77,6 +77,9 @@ interface State {
   /** Database-scoped dialogs; `table` preselects a table where relevant. */
   dbDialog: { kind: DbDialogKind; connId: string; database: string; table?: TableRef } | null;
   aiSettingsOpen: boolean;
+  newDatabaseOpen: boolean;
+  /** Restore-.bak dialog, preselected connection. */
+  restoreBak: { connId: string } | null;
 
   loadConnections(): Promise<void>;
   saveConnection(c: ConnectionInput): Promise<PublicConnection>;
@@ -106,6 +109,9 @@ interface State {
   openDbDialog(d: State['dbDialog']): void;
   openIntegrations(): void;
   openAiSettings(open: boolean): void;
+  openNewDatabase(open: boolean): void;
+  openLocalServer(): void;
+  openRestoreBak(connId: string | null): void;
 }
 
 const inflightSchemas = new Map<string, Promise<SchemaSnapshot | undefined>>();
@@ -128,6 +134,8 @@ export const useStore = create<State>()(
       endpointDraft: null,
       dbDialog: null,
       aiSettingsOpen: false,
+      newDatabaseOpen: false,
+      restoreBak: null,
 
       async loadConnections() {
         try {
@@ -338,6 +346,18 @@ export const useStore = create<State>()(
 
       openAiSettings(open) {
         set({ aiSettingsOpen: open });
+      },
+
+      openNewDatabase(open) {
+        set({ newDatabaseOpen: open });
+      },
+
+      openRestoreBak(connId) {
+        set({ restoreBak: connId ? { connId } : null });
+      },
+
+      openLocalServer() {
+        get().openTab({ kind: 'localserver', connId: '', database: '', title: 'Local SQL Server' });
       },
     }),
     {

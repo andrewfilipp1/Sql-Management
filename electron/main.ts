@@ -13,6 +13,9 @@ import { ensureDemoDatabase } from '../core/demo.ts';
 import { loadCsv, writeDatabaseScript } from '../core/transfer.ts';
 import { backupToFile, restoreFromFile } from '../core/backup.ts';
 import { getConnection } from '../core/store.ts';
+import { setLocalServerEmitter } from '../core/localServer.ts';
+import { inspectBak } from '../core/bak.ts';
+import { LOCAL_SERVER_EVENT } from '../shared/localServer.ts';
 
 const DEV_URL = process.env.SCHEMASCOPE_DEV_URL;
 export const APP_NAME = 'SQL Graphic Tool';
@@ -64,6 +67,15 @@ const nativeApi: Pick<Api, NativeMethods> = {
     installUpdate();
   },
 
+  async pickBak(connId) {
+    const r = await dialog.showOpenDialog(win!, {
+      title: 'Open SQL Server backup',
+      properties: ['openFile'],
+      filters: [{ name: 'SQL Server backup', extensions: ['bak'] }, { name: 'All files', extensions: ['*'] }],
+    });
+    return r.canceled ? null : inspectBak(connId, { localFile: r.filePaths[0] });
+  },
+
   async pickCsv() {
     const r = await dialog.showOpenDialog(win!, {
       title: 'Import CSV',
@@ -99,13 +111,13 @@ const nativeApi: Pick<Api, NativeMethods> = {
     return { file: r.filePaths[0] };
   },
 
-  async pickSqliteFile(mode) {
+  async pickSqliteFile(mode, defaultName) {
     const filters = [
       { name: 'SQLite database', extensions: ['db', 'sqlite', 'sqlite3', 'db3', 's3db', 'sl3'] },
       { name: 'All files', extensions: ['*'] },
     ];
     if (mode === 'create') {
-      const r = await dialog.showSaveDialog(win!, { title: 'Create SQLite database', defaultPath: 'database.sqlite', filters });
+      const r = await dialog.showSaveDialog(win!, { title: 'Create SQLite database', defaultPath: `${(defaultName || 'database').replace(/[\\/:*?"<>|]+/g, '_')}.sqlite`, filters });
       return r.canceled || !r.filePath ? null : r.filePath;
     }
     const r = await dialog.showOpenDialog(win!, { title: 'Open SQLite database', properties: ['openFile'], filters });
@@ -203,6 +215,9 @@ app.whenReady().then(() => {
     console.error('Could not create demo database:', e);
   }
   registerIpc();
+  setLocalServerEmitter((state) => {
+    if (win && !win.isDestroyed()) win.webContents.send(LOCAL_SERVER_EVENT, state);
+  });
   createWindow();
   initUpdater();
   // Local REST/MCP server, only if the user enabled it in Integrations.
