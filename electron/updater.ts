@@ -1,20 +1,23 @@
 import { app, type BrowserWindow } from 'electron';
 import electronUpdater, { type UpdateInfo } from 'electron-updater';
 import { RELEASES_URL, UPDATE_EVENT, type UpdateState } from '../shared/update.ts';
+import { downloadMacUpdate, installMacUpdate, installProblem } from './macUpdater.ts';
 
 // electron-updater is CommonJS; this form works when bundled to CJS as well.
 const { autoUpdater } = electronUpdater;
 
 /**
  * Updates come from GitHub Releases (see "publish" in package.json and .github/workflows/release.yml).
- * Nothing is downloaded without the user asking. Windows installs in place; macOS needs a signed
- * app for that, so there the user gets a link to the release page.
+ * Nothing is downloaded without the user asking. Windows installs in place through electron-updater;
+ * the unsigned macOS build uses macUpdater.ts, which swaps the app bundle itself.
  */
+const isMac = process.platform === 'darwin';
 let state: UpdateState = {
   phase: 'idle',
   currentVersion: app.getVersion(),
-  canInstall: process.platform === 'win32',
+  canInstall: process.platform === 'win32' || isMac,
 };
+let available: UpdateInfo | null = null;
 let window: BrowserWindow | null = null;
 
 function set(patch: Partial<UpdateState>) {
@@ -55,14 +58,19 @@ export function initUpdater() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.logger = null;
+  if (isMac) {
+    const problem = installProblem();
+    if (problem) set({ canInstall: false, installBlockedReason: problem });
+  }
   // Test hook: read the update feed from a local server instead of GitHub (used by the e2e tests).
   if (process.env.SCHEMASCOPE_UPDATE_FEED) autoUpdater.setFeedURL({ provider: 'generic', url: process.env.SCHEMASCOPE_UPDATE_FEED });
 
   autoUpdater.on('checking-for-update', () => set({ phase: 'checking', error: undefined }));
   autoUpdater.on('update-not-available', () => set({ phase: 'none' }));
-  autoUpdater.on('update-available', (info) =>
-    set({ phase: 'available', version: info.version, notes: notesText(info), releaseUrl: `${RELEASES_URL}/tag/v${info.version}` }),
-  );
+  autoUpdater.on('update-available', (info) => {
+    available = info;
+    set({ phase: 'available', version: info.version, notes: notesText(info), releaseUrl: `${RELEASES_URL}/tag/v${info.version}` });
+  });
   autoUpdater.on('download-progress', (p) => set({ phase: 'downloading', percent: Math.round(p.percent) }));
   autoUpdater.on('update-downloaded', () => set({ phase: 'ready', percent: 100 }));
   autoUpdater.on('error', (e) => set({ phase: 'error', error: friendly(e) }));
@@ -75,6 +83,7 @@ function friendly(e: Error): string {
   const m = e?.message ?? String(e);
   if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|net::/i.test(m)) return 'Could not reach GitHub';
   if (/404|latest.*\.yml/i.test(m)) return 'No published release found yet';
+  if (/EACCES|EPERM/i.test(m)) return 'No permission to write the update';
   return m.split('\n')[0].slice(0, 200);
 }
 
@@ -97,6 +106,13 @@ export async function downloadUpdate(): Promise<UpdateState> {
   if (!state.canInstall) return state;
   set({ phase: 'downloading', percent: 0 });
   try {
+    if (isMac) {
+      if (!available) throw new Error('Check for updates first');
+      const base = process.env.SCHEMASCOPE_UPDATE_FEED || `${RELEASES_URL}/download/v${available.version}`;
+      await downloadMacUpdate(available, base, (percent) => set({ phase: 'downloading', percent }));
+      set({ phase: 'ready', percent: 100 });
+      return state;
+    }
     await autoUpdater.downloadUpdate();
   } catch (e) {
     set({ phase: 'error', error: friendly(e as Error) });
@@ -105,5 +121,13 @@ export async function downloadUpdate(): Promise<UpdateState> {
 }
 
 export function installUpdate() {
-  if (state.phase === 'ready') setImmediate(() => autoUpdater.quitAndInstall());
+  if (state.phase !== 'ready') return;
+  setImmediate(() => {
+    if (!isMac) return autoUpdater.quitAndInstall();
+    try {
+      installMacUpdate();
+    } catch (e) {
+      set({ phase: 'error', error: friendly(e as Error) });
+    }
+  });
 }

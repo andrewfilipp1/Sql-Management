@@ -15,10 +15,12 @@ export interface UpdateState {
   percent?: number;
   error?: string;
   /**
-   * In-place install works for the Windows installer. macOS only installs signed apps,
-   * so unsigned builds link to the release page instead.
+   * Whether the app can install the update itself (Windows installer, or the macOS bundle swap).
+   * False on macOS when the app cannot replace itself, e.g. it runs from the disk image.
    */
   canInstall: boolean;
+  /** Why an in-place install is not possible here (shown with the download link). */
+  installBlockedReason?: string;
   /** Why updates are off (development build, test run…). */
   disabledReason?: string;
 }

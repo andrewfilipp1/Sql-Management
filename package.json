@@ -14,7 +14,8 @@
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:win": "npm run build && electron-builder --win",
     "smoke": "node scripts/smoke.mjs",
-    "dist:dir": "npm run build && electron-builder --dir --publish never"
+    "dist:dir": "npm run build && electron-builder --dir --publish never",
+    "release": "npm version patch -m \"Release %s\" && git push --follow-tags"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
@@ -103,7 +104,7 @@
         "provider": "github",
         "owner": "andrewfilipp1",
         "repo": "Sql-Management",
-        "releaseType": "release"
+        "releaseType": "draft"
       }
     ]
   },

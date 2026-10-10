@@ -82,8 +82,9 @@ export function UpdateIndicator() {
             {state.phase === 'error' && <span className="text-warn">{state.error}</span>}
           </p>
           {state.phase === 'available' && !state.canInstall && (
-            <p className="text-xs text-muted">macOS installs updates in place only for signed apps. Download the new version and replace the app in Applications.</p>
+            <p className="text-xs text-muted">{state.installBlockedReason ?? 'This copy cannot update itself.'} Or download the new version and replace the app in Applications.</p>
           )}
+          {state.phase === 'ready' && <p className="text-xs text-muted">The app will close, update and open again. Your connections and settings stay as they are.</p>}
           {(state.phase === 'downloading' || state.phase === 'ready') && (
             <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
               <motion.div className="h-full rounded-full bg-gradient-to-r from-indigo-400 to-cyan-400" animate={{ width: `${state.percent ?? 0}%` }} transition={spring} />
