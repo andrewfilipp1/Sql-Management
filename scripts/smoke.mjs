@@ -27,7 +27,7 @@ const results = [];
 const names = [];
 const check = (name, ok, info = '') => {
   results.push(ok);
-  names.push(`${ok ? '✓' : '✗'} ${name}`);
+  names.push(`${ok ? '✓' : '✗'} ${name}${ok || !info ? '' : ` — ${String(info).replace(/[\r\n]+/g, ' ').slice(0, 400)}`}`);
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${info ? '  — ' + info : ''}`);
 };
 
