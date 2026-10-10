@@ -173,7 +173,11 @@ export class MssqlDriver extends Driver {
   }
 
   private async run(req: sql.Request, text: string, params: unknown[] = []): Promise<ExecResult> {
-    params.forEach((v, i) => req.input('p' + (i + 1), v));
+    // The ODBC driver (integrated auth) names its own parameter markers @P1, @P2…, which collide with ours
+    // (SQL Server names are case-insensitive), so over ODBC our parameters are renamed @gp1, @gp2…
+    if (this.integrated && params.length) text = text.replace(/@p(\d+)\b/g, '@gp$1');
+    const prefix = this.integrated ? 'gp' : 'p';
+    params.forEach((v, i) => req.input(prefix + (i + 1), v));
     req.arrayRowMode = true;
     const r = (await req.query(text)) as any;
     const cols: any[] = r.columns?.[0] ?? [];
