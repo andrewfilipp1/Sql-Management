@@ -36,6 +36,7 @@ import { useSchema, useStore } from '../lib/store';
 import { cn, compactNumber, dbKey } from '../lib/utils';
 import { DbIcon } from './DbIcon';
 import { Badge, IconButton, Input, Spinner, spring, useContextMenu } from './ui';
+import { NotificationBell } from './UpdateIndicator';
 
 function Collapse({ open, children }: { open: boolean; children: ReactNode }) {
   return (
@@ -466,6 +467,7 @@ export function Sidebar() {
           <Waypoints className="size-3.5 text-white" />
         </motion.div>
         <span className="flex-1 truncate text-[13px] font-semibold tracking-tight whitespace-nowrap">SQL Graphic Tool</span>
+        <NotificationBell />
       </div>
 
       <div className="flex items-center gap-2 px-3 pt-1 pb-2">

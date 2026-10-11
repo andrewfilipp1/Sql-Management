@@ -21,6 +21,8 @@ export interface UpdateState {
   canInstall: boolean;
   /** Why an in-place install is not possible here (shown with the download link). */
   installBlockedReason?: string;
+  /** The user clicked "Update now"; the app restarts as soon as the update is in place. */
+  installing?: boolean;
   /** Why updates are off (development build, test run…). */
   disabledReason?: string;
 }

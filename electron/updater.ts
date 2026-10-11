@@ -8,7 +8,8 @@ const { autoUpdater } = electronUpdater;
 
 /**
  * Updates come from GitHub Releases (see "publish" in package.json and .github/workflows/release.yml).
- * Nothing is downloaded without the user asking. Windows installs in place through electron-updater;
+ * A newer release is downloaded quietly in the background, but nothing is installed until the user
+ * clicks "Update now" (the notification bell). Windows installs in place through electron-updater;
  * the unsigned macOS build uses macUpdater.ts, which swaps the app bundle itself.
  */
 const isMac = process.platform === 'darwin';
@@ -18,6 +19,9 @@ let state: UpdateState = {
   canInstall: process.platform === 'win32' || isMac,
 };
 let available: UpdateInfo | null = null;
+/** The user clicked "Update now" before the background download finished. */
+let installWhenReady = false;
+const CHECK_EVERY_MS = 4 * 60 * 60 * 1000;
 let window: BrowserWindow | null = null;
 
 function set(patch: Partial<UpdateState>) {
@@ -70,13 +74,21 @@ export function initUpdater() {
   autoUpdater.on('update-available', (info) => {
     available = info;
     set({ phase: 'available', version: info.version, notes: notesText(info), releaseUrl: `${RELEASES_URL}/tag/v${info.version}` });
+    if (state.canInstall) void downloadUpdate();
   });
   autoUpdater.on('download-progress', (p) => set({ phase: 'downloading', percent: Math.round(p.percent) }));
-  autoUpdater.on('update-downloaded', () => set({ phase: 'ready', percent: 100 }));
-  autoUpdater.on('error', (e) => set({ phase: 'error', error: friendly(e) }));
+  autoUpdater.on('update-downloaded', () => {
+    set({ phase: 'ready', percent: 100 });
+    if (installWhenReady) installUpdate();
+  });
+  autoUpdater.on('error', (e) => {
+    installWhenReady = false;
+    set({ phase: 'error', installing: false, error: friendly(e) });
+  });
 
-  // Quietly check once shortly after start.
+  // Quietly check shortly after start, then every few hours while the app stays open.
   setTimeout(() => void checkForUpdates().catch(() => undefined), 15_000);
+  setInterval(() => void checkForUpdates().catch(() => undefined), CHECK_EVERY_MS).unref();
 }
 
 function friendly(e: Error): string {
@@ -92,7 +104,8 @@ export function updateState(): UpdateState {
 }
 
 export async function checkForUpdates(): Promise<UpdateState> {
-  if (state.phase === 'disabled' || state.phase === 'downloading') return state;
+  // An update already downloaded (or downloading) stays as it is until the user installs it.
+  if (state.phase === 'disabled' || state.phase === 'downloading' || state.phase === 'ready') return state;
   try {
     await autoUpdater.checkForUpdates();
   } catch (e) {
@@ -111,23 +124,38 @@ export async function downloadUpdate(): Promise<UpdateState> {
       const base = process.env.SCHEMASCOPE_UPDATE_FEED || `${RELEASES_URL}/download/v${available.version}`;
       await downloadMacUpdate(available, base, (percent) => set({ phase: 'downloading', percent }));
       set({ phase: 'ready', percent: 100 });
+      if (installWhenReady) installUpdate();
       return state;
     }
     await autoUpdater.downloadUpdate();
   } catch (e) {
-    set({ phase: 'error', error: friendly(e as Error) });
+    installWhenReady = false;
+    set({ phase: 'error', installing: false, error: friendly(e as Error) });
   }
   return state;
 }
 
+/**
+ * "Update now": installs and restarts. If the background download has not finished (or failed),
+ * it is finished first and the install follows on its own.
+ */
 export function installUpdate() {
-  if (state.phase !== 'ready') return;
+  if (state.phase !== 'ready') {
+    if (!state.version || !state.canInstall) return;
+    installWhenReady = true;
+    set({ installing: true });
+    if (state.phase !== 'downloading') void downloadUpdate();
+    return;
+  }
+  set({ installing: true });
   setImmediate(() => {
-    if (!isMac) return autoUpdater.quitAndInstall();
+    // Silent install, then start the new version.
+    if (!isMac) return autoUpdater.quitAndInstall(true, true);
     try {
       installMacUpdate();
     } catch (e) {
-      set({ phase: 'error', error: friendly(e as Error) });
+      installWhenReady = false;
+      set({ phase: 'error', installing: false, error: friendly(e as Error) });
     }
   });
 }
