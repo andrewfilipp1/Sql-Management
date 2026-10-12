@@ -121,6 +121,45 @@ try {
   const ls = await ipc('checkLocalServer');
   check('local server check runs', ls.ok && ls.data.steps.length > 0 && !ls.data.busy, ls.ok ? ls.data.steps.map((x) => `${x.id}=${x.status}`).join(' ') : ls.error);
 
+  // The setup form shows the platform's own settings (Windows: instance, authentication, TCP).
+  await evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Local SQL Server')?.click()`);
+  for (let i = 0; i < 40 && !(await evaluate(`!!document.querySelector('[data-testid=ls-settings]')`)); i++) await sleep(250);
+  const formIds = await evaluate(`[...document.querySelectorAll('[data-testid^=ls-]')].map((e) => e.dataset.testid).join(' ')`);
+  const expected = process.platform === 'win32' ? ['ls-name', 'ls-instance', 'ls-mixed', 'ls-collation', 'ls-db-name'] : ['ls-name', 'ls-port', 'ls-own-pw', 'ls-collation', 'ls-db-name'];
+  check('local server settings form', expected.every((id) => formIds?.split(' ').includes(id)), formIds);
+
+  // Full SQL Server Express install with the user's choices (separate CI job: it takes several minutes).
+  if (process.env.SMOKE_SQL_EXPRESS) {
+    const pw = 'Smoke_Pass123!';
+    const inst = await ipc('installLocalServer', {
+      acceptLicenses: true,
+      name: 'Express (smoke)',
+      instance: 'SGTSMOKE',
+      authMode: 'mixed',
+      password: pw,
+      serverCollation: 'Greek_CI_AS',
+      tcp: true,
+      port: 14333,
+      database: { name: 'Πελάτες' },
+    });
+    const st = inst.ok ? inst.data : null;
+    check('Express: installed and ready', !!st?.ready, st ? `${st.error ?? ''} ${st.steps.map((x) => `${x.id}=${x.status}${x.detail ? `(${x.detail})` : ''}`).join(' ')}` : inst.error);
+    if (st?.ready) {
+      const q = await ipc('query', st.connId, 'master', "SELECT CAST(SERVERPROPERTY('Collation') AS nvarchar(100)), CAST(SERVERPROPERTY('IsIntegratedSecurityOnly') AS int), CAST(DATABASEPROPERTYEX(N'Πελάτες', 'Collation') AS nvarchar(100)), SUSER_SNAME(), IS_SRVROLEMEMBER('sysadmin')");
+      const r = q.ok ? q.data.results[0].rows[0] : [];
+      check('Express: server collation Greek_CI_AS', r[0] === 'Greek_CI_AS', q.ok ? JSON.stringify(r) : q.error);
+      check('Express: mixed authentication on', Number(r[1]) === 0, String(r[1]));
+      check('Express: first database created with the server collation', r[2] === 'Greek_CI_AS', String(r[2]));
+      check('Express: Windows user is sysadmin', Number(r[4]) === 1, String(r[3]));
+      const sa = await ipc('testConnection', { name: 'sa', kind: 'mssql', host: '127.0.0.1', port: 14333, user: 'sa', password: pw, trustServerCertificate: true });
+      check('Express: sa signs in over TCP on the chosen port', sa.ok, sa.ok ? sa.data.version : sa.error);
+      const conns = await ipc('listConnections');
+      check('Express: connection named as chosen', conns.ok && conns.data.some((c) => c.name === 'Express (smoke)' && c.instance === 'SGTSMOKE'));
+      const leftovers = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith('sql-graphic-tool-express-') || n.startsWith('sql-graphic-tool-ps-'));
+      check('Express: temporary setup files removed', leftovers.length === 0, leftovers.join(', '));
+    }
+  }
+
   check('no page exceptions', exceptions.length === 0, exceptions.slice(0, 2).join(' / '));
 } catch (e) {
   check('smoke test ran', false, e.message);

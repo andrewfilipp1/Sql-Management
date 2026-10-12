@@ -8,7 +8,10 @@ import type { ConnectionConfig } from '../shared/types.ts';
 import { createDatabaseSql } from '../shared/dialect.ts';
 import {
   databaseNameProblem,
+  DEFAULT_INSTANCE,
   DEFAULT_SERVER_COLLATION,
+  instanceNameProblem,
+  windowsPasswordProblem,
   LOCAL_SERVER_NAME,
   portProblem,
   saPasswordProblem,
@@ -26,7 +29,8 @@ import { HttpError } from './util.ts';
 /**
  * One-click local SQL Server.
  * macOS: Rosetta (Apple Silicon) → Docker Desktop → SQL Server 2022 image → container on 127.0.0.1.
- * Windows: SQL Server 2022 Express through winget, signed in with the current Windows user.
+ * Windows: SQL Server Express through Microsoft's unattended setup (the current Windows user is the admin;
+ *   optionally SQL logins, a named instance, a collation and a fixed TCP port).
  * Every step is checked first and only installed when missing. Installers that need administrator rights
  * show the system's own password / UAC prompt.
  */
@@ -34,7 +38,9 @@ import { HttpError } from './util.ts';
 // Tests use their own container (SCHEMASCOPE_LOCAL_CONTAINER) so a real local server is never touched.
 const CONTAINER = process.env.SCHEMASCOPE_LOCAL_CONTAINER || 'sql-graphic-tool-mssql';
 const IMAGE = 'mcr.microsoft.com/mssql/server:2022-latest';
-const EXPRESS_SERVICE = 'MSSQL$SQLEXPRESS';
+// Microsoft's permanent link to the current SQL Server Express installer (SQL Server 2025 as of late 2026).
+// The download is accepted only with a valid Microsoft Authenticode signature.
+const EXPRESS_BOOTSTRAPPER = 'https://go.microsoft.com/fwlink/p/?linkid=2216019&clcid=0x409&culture=en-us&country=us';
 const isMac = process.platform === 'darwin';
 const isWin = process.platform === 'win32';
 
@@ -60,8 +66,8 @@ function initialSteps(): SetupStep[] {
   }
   if (isWin) {
     return [
-      { id: 'winget', label: 'Windows Package Manager (winget)', status: 'pending' },
-      { id: 'express', label: 'SQL Server 2022 Express', status: 'pending' },
+      { id: 'download', label: 'SQL Server Express installer from Microsoft (~300 MB)', status: 'pending' },
+      { id: 'express', label: 'SQL Server Express', status: 'pending' },
       { id: 'service', label: 'SQL Server service running', status: 'pending' },
       { id: 'connection', label: 'Connection in SQL Graphic Tool', status: 'pending' },
     ];
@@ -98,7 +104,7 @@ export function localServerState(): LocalServerState {
 
 /** The local server's sa password, for copying to the clipboard. Never sent over the HTTP API. */
 export function localServerPassword(): string | null {
-  return readSaved()?.password ?? null;
+  return (isWin ? readSavedExpress()?.password : readSaved()?.password) ?? null;
 }
 
 /** The optional “create a database” step exists only while an install asked for one. */
@@ -131,6 +137,38 @@ function readSaved(): (Omit<Saved, 'password'> & { password: string }) | null {
 function writeSaved(s: { port: number; password: string; edition: LocalEdition; volume: string; collation?: string }) {
   fs.mkdirSync(getDataDir(), { recursive: true });
   fs.writeFileSync(savedFile(), JSON.stringify({ ...s, password: encodeSecret(s.password) }, null, 2), { mode: 0o600 });
+}
+
+/** Windows: what was chosen when SQL Server Express was installed by the app. */
+interface SavedExpress {
+  instance: string;
+  mixed: boolean;
+  password?: string; // encrypted
+  port?: number;
+  collation?: string;
+}
+const savedExpressFile = () => path.join(getDataDir(), 'local-sqlexpress.json');
+function readSavedExpress(): (Omit<SavedExpress, 'password'> & { password?: string }) | null {
+  try {
+    const s = JSON.parse(fs.readFileSync(savedExpressFile(), 'utf8')) as SavedExpress;
+    return { ...s, password: s.password ? decodeSecret(s.password).value : undefined };
+  } catch {
+    return null;
+  }
+}
+function writeSavedExpress(s: Omit<SavedExpress, 'password'> & { password?: string }) {
+  fs.mkdirSync(getDataDir(), { recursive: true });
+  fs.writeFileSync(savedExpressFile(), JSON.stringify({ ...s, password: s.password ? encodeSecret(s.password) : undefined }, null, 2), { mode: 0o600 });
+}
+function expressInfo(instance: string, saved: ReturnType<typeof readSavedExpress>) {
+  const mine = saved?.instance.toUpperCase() === instance.toUpperCase() ? saved : null;
+  return {
+    host: `localhost\\${instance}`,
+    port: mine?.port,
+    user: mine?.mixed ? 'sa' : undefined,
+    edition: 'Express' as const,
+    collation: mine?.collation,
+  };
 }
 
 // ---------------------------------------------------------------- process helpers
@@ -200,8 +238,8 @@ async function containerState(): Promise<string | null> {
 function localConnection(kind: 'docker' | 'express'): ConnectionConfig | undefined {
   return listConnections().find((c) => c.localServer === kind);
 }
-async function expressService(): Promise<'running' | 'stopped' | null> {
-  const r = await run('sc.exe', ['query', EXPRESS_SERVICE], 15_000);
+async function expressService(instance: string): Promise<'running' | 'stopped' | null> {
+  const r = await run('sc.exe', ['query', `MSSQL$${instance}`], 15_000);
   if (r.code !== 0 || !/STATE/.test(r.stdout)) return null;
   return /RUNNING/.test(r.stdout) ? 'running' : 'stopped';
 }
@@ -236,14 +274,15 @@ export async function checkLocalServer(): Promise<LocalServerState> {
         suggestedPort: saved ? undefined : await freePort([1433, 14330, 14331, 14332, 14333]),
       });
     } else if (isWin) {
-      const winget = (await run('winget', ['--version'], 20_000)).code === 0;
-      step('winget', winget ? 'ok' : 'missing', winget ? undefined : 'Install “App Installer” from the Microsoft Store');
-      const svc = await expressService();
-      step('express', svc ? 'ok' : 'missing');
+      const saved = readSavedExpress();
+      const instance = saved?.instance ?? DEFAULT_INSTANCE;
+      const svc = await expressService(instance);
+      step('download', svc ? 'ok' : 'missing', svc ? 'Not needed' : undefined);
+      step('express', svc ? 'ok' : 'missing', svc ? `Instance ${instance}` : undefined);
       step('service', svc === 'running' ? 'ok' : svc ? 'missing' : 'pending', svc === 'stopped' ? 'Stopped — will be started' : undefined);
       const conn = localConnection('express');
       step('connection', conn ? 'ok' : 'missing', conn?.name);
-      publish({ ready: state.steps.every((s) => s.status === 'ok'), connId: conn?.id, server: svc ? { host: 'localhost\\SQLEXPRESS' } : undefined });
+      publish({ ready: state.steps.every((s) => s.status === 'ok'), connId: conn?.id, server: svc ? expressInfo(instance, saved) : undefined, suggestedPort: svc ? undefined : await freePort([1433, 14330, 14331, 14332, 14333]) });
     }
   } catch (e) {
     publish({ error: (e as Error).message });
@@ -264,10 +303,15 @@ function validate(opts: LocalServerOptions) {
     if (p) throw new HttpError(400, p);
   }
   if (opts.password) {
-    const p = saPasswordProblem(opts.password);
+    const p = isWin ? windowsPasswordProblem(opts.password) : saPasswordProblem(opts.password);
     if (p) throw new HttpError(400, `sa password: ${p}`);
   }
   if (opts.serverCollation && !SERVER_COLLATIONS.includes(opts.serverCollation)) throw new HttpError(400, 'Unknown server collation');
+  if (opts.instance !== undefined) {
+    const p = instanceNameProblem(opts.instance);
+    if (p) throw new HttpError(400, `Instance name: ${p}`);
+  }
+  if (opts.authMode && opts.authMode !== 'windows' && opts.authMode !== 'mixed') throw new HttpError(400, 'Unknown authentication mode');
   if (opts.database) {
     const p = databaseNameProblem(opts.database.name);
     if (p) throw new HttpError(400, `Database name: ${p}`);
@@ -471,32 +515,38 @@ function pullImage(): Promise<void> {
 }
 
 async function installWindows(opts: LocalServerOptions): Promise<ConnectionConfig> {
-  step('winget', 'checking');
-  if ((await run('winget', ['--version'], 20_000)).code !== 0) {
-    throw new Error('winget is missing — install “App Installer” from the Microsoft Store, then press Install again.');
-  }
-  step('winget', 'ok', 'Available');
+  const instance = (opts.instance || DEFAULT_INSTANCE).toUpperCase();
+  const mixed = opts.authMode === 'mixed';
 
+  step('download', 'checking');
   step('express', 'checking');
-  if (await expressService()) step('express', 'ok', 'Already installed');
-  else {
-    step('express', 'working', 'Downloading and installing (several minutes) — allow the Windows prompt');
-    const r = await run(
-      'winget',
-      ['install', '--id', 'Microsoft.SQLServer.2022.Express', '-e', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity'],
-      60 * 60_000,
-    );
-    if (!(await expressService())) throw new Error(`SQL Server Express was not installed: ${firstLine(r.stdout || r.stderr) || 'cancelled'}`);
-    step('express', 'done', 'Installed');
+  const existing0 = await expressService(instance);
+  if (existing0) {
+    step('download', 'ok', 'Not needed');
+    step('express', 'ok', `Instance ${instance} already installed`);
+  } else {
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'sql-graphic-tool-express-'));
+    try {
+      const setupExe = await downloadExpress(work);
+      const password = mixed ? opts.password || strongPassword() : undefined;
+      const port = opts.tcp ? opts.port || (await freePort([1433, 14330, 14331, 14332, 14333])) : undefined;
+      if (port && !(await portFree(port))) throw new Error(`Port ${port} is already in use — choose another one`);
+      step('express', 'working', 'Installing — allow the Windows prompt. This takes several minutes…');
+      await runExpressSetup(work, setupExe, { instance, password, collation: opts.serverCollation || undefined, port });
+      writeSavedExpress({ instance, mixed, password, port, collation: opts.serverCollation || undefined });
+      step('express', 'done', `Installed (instance ${instance})`);
+    } finally {
+      fs.rmSync(work, { recursive: true, force: true });
+    }
   }
 
   step('service', 'checking');
-  if ((await expressService()) === 'running') step('service', 'ok', 'Already running');
+  if ((await expressService(instance)) === 'running') step('service', 'ok', 'Running');
   else {
     step('service', 'working', 'Starting — allow the Windows prompt');
-    await run('powershell.exe', ['-NoProfile', '-Command', `Start-Process -FilePath sc.exe -ArgumentList 'start','${EXPRESS_SERVICE}' -Verb RunAs -Wait`], 120_000);
+    await runElevated(`Start-Service -Name ${psQuote(`MSSQL$${instance}`)}`, 120_000);
     const started = Date.now();
-    while ((await expressService()) !== 'running') {
+    while ((await expressService(instance)) !== 'running') {
       if (Date.now() - started > 60_000) throw new Error('The SQL Server service did not start');
       await sleep(2000);
     }
@@ -509,7 +559,7 @@ async function installWindows(opts: LocalServerOptions): Promise<ConnectionConfi
     name: 'Local SQL Server Express',
     kind: 'mssql',
     host: 'localhost',
-    instance: 'SQLEXPRESS',
+    instance,
     authType: 'windows',
     trustServerCertificate: true,
     environment: 'development',
@@ -519,8 +569,139 @@ async function installWindows(opts: LocalServerOptions): Promise<ConnectionConfi
   const existing = localConnection('express');
   const conn = upsertConnection({ ...cfg, id: existing?.id ?? '', name: opts.name?.trim() || existing?.name || cfg.name });
   step('connection', existing ? 'ok' : 'done', existing ? `Updated “${conn.name}”` : `Added “${conn.name}”`);
-  publish({ connId: conn.id, server: { host: 'localhost\\SQLEXPRESS' } });
+  publish({ connId: conn.id, server: expressInfo(instance, readSavedExpress()) });
   return cfg;
+}
+
+// ---------------------------------------------------------------- SQL Server Express (Windows)
+
+const psQuote = (s: string) => `'${s.replace(/'/g, "''")}'`;
+
+/** Runs PowerShell code as administrator (one UAC prompt) and waits for it. */
+async function runElevated(code: string, timeout: number): Promise<RunResult> {
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'sql-graphic-tool-ps-'));
+  const script = path.join(work, 'run.ps1');
+  fs.writeFileSync(script, `\ufeff$ErrorActionPreference = 'Stop'\r\n${code}\r\n`, 'utf8');
+  const outer =
+    `$p = Start-Process -FilePath powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden ` +
+    `-ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + ${psQuote(script)} + '"')); exit $p.ExitCode`;
+  try {
+    const r = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(outer, 'utf16le').toString('base64')], timeout);
+    if (r.code !== 0 && /cancel/i.test(r.stderr)) throw new Error('Cancelled — the Windows permission prompt was declined');
+    return r;
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+}
+
+async function microsoftSigned(file: string): Promise<boolean> {
+  const r = await run(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-Command', `$s = Get-AuthenticodeSignature -LiteralPath ${psQuote(file)}; if ($s.Status -eq 'Valid' -and $s.SignerCertificate.Subject -match 'O=Microsoft Corporation') { 'ok' }`],
+    60_000,
+  );
+  return r.stdout.trim() === 'ok';
+}
+
+function folderSize(dir: string): number {
+  let n = 0;
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    n += e.isDirectory() ? folderSize(p) : fs.statSync(p).size;
+  }
+  return n;
+}
+
+/** Downloads Microsoft's bootstrapper, lets it fetch the Express package, and unpacks setup.exe. */
+async function downloadExpress(work: string): Promise<string> {
+  step('download', 'working', 'Downloading the installer…');
+  const boot = path.join(work, 'SQL-SSEI-Expr.exe');
+  await download(EXPRESS_BOOTSTRAPPER, boot, (pct) => step('download', 'working', 'Downloading the installer…', pct));
+  if (!(await microsoftSigned(boot))) throw new Error('The downloaded installer is not signed by Microsoft; it was not run');
+
+  const media = path.join(work, 'media');
+  fs.mkdirSync(media);
+  const job = run(boot, ['/ACTION=Download', `/MEDIAPATH=${media}`, '/MEDIATYPE=Core', '/QUIET'], 60 * 60_000);
+  let done = false;
+  void job.finally(() => (done = true));
+  while (!done) {
+    await sleep(1500);
+    try {
+      step('download', 'working', `Downloading SQL Server Express… ${Math.round(folderSize(media) / 1e6)} MB`);
+    } catch {}
+  }
+  const r = await job;
+  const pkg = fs.readdirSync(media).find((n) => /^SQLEXPR.*\.exe$/i.test(n));
+  if (!pkg) throw new Error(`The SQL Server Express download failed: ${firstLine(r.stderr || r.stdout) || `exit code ${r.code}`}`);
+  const pkgPath = path.join(media, pkg);
+  if (!(await microsoftSigned(pkgPath))) throw new Error('The SQL Server Express package is not signed by Microsoft; it was not run');
+
+  step('download', 'working', 'Unpacking…');
+  const unpacked = path.join(work, 'setup');
+  await run(pkgPath, ['/q', `/x:${unpacked}`], 30 * 60_000);
+  const setupExe = path.join(unpacked, 'SETUP.EXE');
+  if (!fs.existsSync(setupExe)) throw new Error('Could not unpack the SQL Server Express package');
+  step('download', 'done', 'Downloaded and verified (signed by Microsoft)');
+  return setupExe;
+}
+
+/**
+ * Microsoft's unattended setup with the user's choices. The sa password goes through a configuration file
+ * in this user's temp folder (not the command line) and is deleted right after setup.
+ */
+async function runExpressSetup(work: string, setupExe: string, o: { instance: string; password?: string; collation?: string; port?: number }) {
+  const ini = path.join(work, 'config.ini');
+  const lines = [
+    '[OPTIONS]',
+    'ACTION="Install"',
+    'QUIET="True"',
+    'IACCEPTSQLSERVERLICENSETERMS="True"',
+    'SUPPRESSPRIVACYSTATEMENTNOTICE="True"',
+    'ENU="True"',
+    'FEATURES=SQLENGINE',
+    `INSTANCENAME="${o.instance}"`,
+    `INSTANCEID="${o.instance}"`,
+    'SQLSVCSTARTUPTYPE="Automatic"',
+    `TCPENABLED="${o.port ? 1 : 0}"`,
+    'UPDATEENABLED="False"',
+    ...(o.collation ? [`SQLCOLLATION="${o.collation}"`] : []),
+    ...(o.password ? ['SECURITYMODE="SQL"', `SAPWD="${o.password}"`] : []),
+  ];
+  fs.writeFileSync(ini, lines.join('\r\n') + '\r\n', { mode: 0o600 });
+  // The installing (elevated) account may differ from the signed-in user; make the signed-in user the admin.
+  const me = `${process.env.USERDOMAIN ?? os.hostname()}\\${process.env.USERNAME ?? os.userInfo().username}`;
+  const result = path.join(work, 'result.txt');
+  const portScript = o.port
+    ? [
+        `$id = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Microsoft SQL Server\\Instance Names\\SQL').PSObject.Properties[${psQuote(o.instance)}].Value`,
+        `$k = "HKLM:\\SOFTWARE\\Microsoft\\Microsoft SQL Server\\$id\\MSSQLServer\\SuperSocketNetLib\\Tcp\\IPAll"`,
+        `Set-ItemProperty -Path $k -Name TcpDynamicPorts -Value ''`,
+        `Set-ItemProperty -Path $k -Name TcpPort -Value ${psQuote(String(o.port))}`,
+        `Restart-Service -Name ${psQuote(`MSSQL$${o.instance}`)} -Force`,
+      ].join('\r\n')
+    : '';
+  const code = [
+    'try {',
+    `  $p = Start-Process -FilePath ${psQuote(setupExe)} -ArgumentList @(${psQuote(`/CONFIGURATIONFILE="${ini}"`)}, ${psQuote(`/SQLSYSADMINACCOUNTS="${me}"`)}) -Wait -PassThru -WindowStyle Hidden`,
+    `  Remove-Item -LiteralPath ${psQuote(ini)} -Force -ErrorAction SilentlyContinue`,
+    `  if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) { "setup:$($p.ExitCode)" | Set-Content -LiteralPath ${psQuote(result)}; exit 2 }`,
+    portScript,
+    `  "ok:$($p.ExitCode)" | Set-Content -LiteralPath ${psQuote(result)}`,
+    '} catch {',
+    `  Remove-Item -LiteralPath ${psQuote(ini)} -Force -ErrorAction SilentlyContinue`,
+    `  ("error:" + $_.Exception.Message) | Set-Content -LiteralPath ${psQuote(result)}; exit 3`,
+    '}',
+  ].join('\r\n');
+  try {
+    await runElevated(code, 90 * 60_000);
+  } finally {
+    fs.rmSync(ini, { force: true });
+  }
+  const out = fs.existsSync(result) ? fs.readFileSync(result, 'utf8').trim() : '';
+  if (out.startsWith('ok:')) return;
+  if (out.startsWith('setup:')) throw new Error(`SQL Server setup failed (code ${out.slice(6)}). Details: C:\\Program Files\\Microsoft SQL Server\\*\\Setup Bootstrap\\Log\\Summary.txt`);
+  if (out.startsWith('error:')) throw new Error(`SQL Server setup failed: ${out.slice(6)}`);
+  throw new Error('SQL Server setup did not run — the Windows permission prompt may have been declined');
 }
 
 /** Creates the first database (or leaves an existing one with that name alone). */

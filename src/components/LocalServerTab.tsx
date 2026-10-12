@@ -3,14 +3,17 @@ import { CheckCircle2, Circle, Copy, Database, Download, ExternalLink, Eye, EyeO
 import { useEffect, useState } from 'react';
 import {
   databaseNameProblem,
+  DEFAULT_INSTANCE,
   DEFAULT_LOCAL_DATABASE,
   DEFAULT_SERVER_COLLATION,
   LICENSES,
   LOCAL_SERVER_NAME,
   MSSQL_COLLATIONS,
   portProblem,
+  instanceNameProblem,
   saPasswordProblem,
   SERVER_COLLATIONS,
+  windowsPasswordProblem,
   type LocalEdition,
   type LocalServerState,
   type SetupStep,
@@ -35,6 +38,11 @@ export function LocalServerTab() {
   const [makeDb, setMakeDb] = useState(true);
   const [dbName, setDbName] = useState(DEFAULT_LOCAL_DATABASE);
   const [dbCollation, setDbCollation] = useState('');
+  // Windows only
+  const [instance, setInstance] = useState(DEFAULT_INSTANCE);
+  const [mixed, setMixed] = useState(false);
+  const [tcp, setTcp] = useState(false);
+  const [winCollation, setWinCollation] = useState('');
 
   useEffect(() => {
     const off = window.schemascope?.onLocalServer(setState);
@@ -55,10 +63,13 @@ export function LocalServerTab() {
   // Server settings only apply when the server is created; an existing one keeps its own.
   const fixed = !!state.server;
   const portValue = port.trim() ? Number(port) : (state.suggestedPort ?? 1433);
+  const usesPort = mac || tcp;
+  const usesSa = mac || mixed;
   const problems = {
     name: !name.trim() ? 'Enter a name' : null,
-    port: mac && !fixed && port.trim() ? portProblem(Number(port)) : null,
-    password: mac && !fixed && ownPassword ? saPasswordProblem(password) : null,
+    instance: !mac && !fixed ? instanceNameProblem(instance) : null,
+    port: !fixed && usesPort && port.trim() ? portProblem(Number(port)) : null,
+    password: !fixed && usesSa && ownPassword ? (mac ? saPasswordProblem(password) : windowsPasswordProblem(password)) : null,
     db: makeDb ? databaseNameProblem(dbName) : null,
   };
   const invalid = Object.values(problems).some(Boolean);
@@ -69,9 +80,18 @@ export function LocalServerTab() {
         acceptLicenses: accepted,
         name: name.trim(),
         edition,
-        port: mac && !fixed ? portValue : undefined,
-        password: mac && !fixed && ownPassword ? password : undefined,
-        serverCollation: mac && !fixed ? collation : undefined,
+        ...(fixed
+          ? {}
+          : mac
+            ? { port: portValue, password: ownPassword ? password : undefined, serverCollation: collation }
+            : {
+                instance,
+                authMode: mixed ? ('mixed' as const) : ('windows' as const),
+                password: mixed && ownPassword ? password : undefined,
+                serverCollation: winCollation || undefined,
+                tcp,
+                port: tcp ? portValue : undefined,
+              }),
         database: makeDb ? { name: dbName.trim(), collation: dbCollation || undefined } : undefined,
       });
       setState(s);
@@ -118,7 +138,7 @@ export function LocalServerTab() {
             <p className="text-[13px] text-muted">
               {mac
                 ? 'SQL Server 2022 running on this Mac (in Docker), reachable only from this computer.'
-                : 'SQL Server 2022 Express on this PC, signed in with your Windows account.'}
+                : 'SQL Server Express on this PC (free, from Microsoft), signed in with your Windows account.'}
             </p>
           </div>
         </div>
@@ -159,9 +179,11 @@ export function LocalServerTab() {
               <div className="flex items-center gap-2 text-[13px] font-medium">
                 <Settings2 className="size-4 text-accent" /> Settings
               </div>
-              {fixed && mac && (
+              {fixed && (
                 <p className="rounded-lg bg-white/[0.03] px-3 py-2 text-xs text-muted">
-                  A local server already exists (port {state.server?.port}, {state.server?.edition}, {state.server?.collation}). Its port, password and collation stay as they are.
+                  {mac
+                    ? `A local server already exists (port ${state.server?.port}, ${state.server?.edition}, ${state.server?.collation}). Its port, password and collation stay as they are.`
+                    : `SQL Server Express is already installed (${state.server?.host}). Its authentication, collation and network settings stay as they are.`}
                 </p>
               )}
               <div className="grid gap-3 sm:grid-cols-2">
@@ -181,6 +203,23 @@ export function LocalServerTab() {
                     <Input value={port} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))} placeholder={String(state.suggestedPort ?? 1433)} inputMode="numeric" data-testid="ls-port" />
                   </Field>
                 )}
+                {!mac && !fixed && (
+                  <Field label="Instance name" hint={problems.instance ? <span className="text-warn">{problems.instance}</span> : `Connect with localhost\\${instance || DEFAULT_INSTANCE}.`}>
+                    <Input value={instance} onChange={(e) => setInstance(e.target.value.toUpperCase())} maxLength={16} data-testid="ls-instance" />
+                  </Field>
+                )}
+                {!mac && !fixed && (
+                  <Field label="Server collation" hint="How text is sorted and compared by default. Fixed once installed.">
+                    <Select value={winCollation} onChange={(e) => setWinCollation(e.target.value)} data-testid="ls-collation">
+                      <option value="">Based on the Windows language (default)</option>
+                      {SERVER_COLLATIONS.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                )}
                 {mac && !fixed && (
                   <Field label="Server collation" hint="How text is sorted and compared by default. Fixed once the server is created.">
                     <Select value={collation} onChange={(e) => setCollation(e.target.value)} data-testid="ls-collation">
@@ -195,7 +234,43 @@ export function LocalServerTab() {
                 )}
               </div>
 
-              {mac && !fixed && (
+              {!mac && !fixed && (
+                <div className="space-y-2">
+                  <div className="text-[11px] font-semibold tracking-wider text-muted uppercase">Authentication</div>
+                  <div className="space-y-1.5 text-[13px]">
+                    <label className="flex items-start gap-2">
+                      <input type="radio" name="ls-auth" checked={!mixed} onChange={() => setMixed(false)} className="mt-1 accent-indigo-400" />
+                      <span>
+                        Windows only <span className="text-muted">(recommended)</span>
+                        <span className="block text-xs text-muted">You sign in with your Windows account; no password to remember.</span>
+                      </span>
+                    </label>
+                    <label className="flex items-start gap-2">
+                      <input type="radio" name="ls-auth" checked={mixed} onChange={() => setMixed(true)} className="mt-1 accent-indigo-400" data-testid="ls-mixed" />
+                      <span>
+                        Windows and SQL logins (mixed)
+                        <span className="block text-xs text-muted">Also allows the sa user with a password — for other programs or computers that cannot use your Windows account.</span>
+                      </span>
+                    </label>
+                  </div>
+                  <p className="text-xs text-muted">Your Windows account becomes an administrator of the server automatically.</p>
+                </div>
+              )}
+
+              {!mac && !fixed && (
+                <div className="space-y-2">
+                  <Checkbox checked={tcp} onChange={setTcp} label={<span className="text-[13px]">Allow connections from other programs (TCP/IP)</span>} />
+                  {tcp && (
+                    <div className="grid gap-3 pl-5 sm:grid-cols-2">
+                      <Field label="Port" hint={problems.port ? <span className="text-warn">{problems.port}</span> : `Connect with localhost,${portValue}. Other computers also need a Windows Firewall rule.`}>
+                        <Input value={port} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))} placeholder={String(state.suggestedPort ?? 1433)} inputMode="numeric" data-testid="ls-port" />
+                      </Field>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {usesSa && !fixed && (
                 <div className="space-y-2">
                   <div className="text-[11px] font-semibold tracking-wider text-muted uppercase">Administrator (sa) password</div>
                   <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[13px]">
@@ -209,7 +284,7 @@ export function LocalServerTab() {
                     </label>
                   </div>
                   {ownPassword ? (
-                    <Field label="" hint={problems.password ? <span className="text-warn">{problems.password}</span> : 'Saved encrypted on this Mac. Fixed once the server is created.'}>
+                    <Field label="" hint={problems.password ? <span className="text-warn">{problems.password}</span> : 'Saved encrypted on this computer. Fixed once the server is created.'}>
                       <div className="relative max-w-sm">
                         <Input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" className="pr-9" data-testid="ls-password" />
                         <button
@@ -224,7 +299,7 @@ export function LocalServerTab() {
                       </div>
                     </Field>
                   ) : (
-                    <p className="text-xs text-muted">Saved encrypted on this Mac. You can copy it later from this page, e.g. for another SQL tool.</p>
+                    <p className="text-xs text-muted">Saved encrypted on this computer. You can copy it later from this page, e.g. for another SQL tool.</p>
                   )}
                 </div>
               )}
@@ -266,7 +341,7 @@ export function LocalServerTab() {
                   installs that need it.
                 </p>
               )}
-              {!mac && <p className="mt-2 pl-5">Downloads about 300 MB and takes several minutes. Windows asks for permission to install.</p>}
+              {!mac && <p className="mt-2 pl-5">Downloads about 300 MB from Microsoft and takes several minutes. Windows asks once for permission to install.</p>}
             </div>
             <div className="flex items-center gap-2">
               <Button

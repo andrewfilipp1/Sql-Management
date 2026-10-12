@@ -1,4 +1,4 @@
-/** One-click local SQL Server: Docker on macOS, SQL Server Express (winget) on Windows. */
+/** One-click local SQL Server: Docker on macOS, SQL Server Express (Microsoft's installer) on Windows. */
 
 export type SetupStatus = 'pending' | 'checking' | 'ok' | 'missing' | 'working' | 'done' | 'failed' | 'skipped';
 
@@ -48,15 +48,24 @@ export interface LocalServerOptions {
   /** Connection name in the sidebar. */
   name?: string;
   edition?: LocalEdition;
+  /** macOS: the published port. Windows: the fixed TCP port when `tcp` is on. */
   port?: number;
   /** Own sa password; empty = generate a strong one. */
   password?: string;
+  /** Empty on Windows = the default for the Windows language. */
   serverCollation?: string;
+  /** Windows: named instance, e.g. SQLEXPRESS. */
+  instance?: string;
+  /** Windows: Windows sign-in only, or Windows + SQL logins (sa). macOS always uses SQL logins. */
+  authMode?: 'windows' | 'mixed';
+  /** Windows: accept TCP/IP connections (other programs, and the network if the firewall allows). */
+  tcp?: boolean;
   /** Create this database once the server is up. */
   database?: { name: string; collation?: string };
 }
 
 export const LOCAL_SERVER_NAME = 'Local SQL Server';
+export const DEFAULT_INSTANCE = 'SQLEXPRESS';
 export const DEFAULT_LOCAL_DATABASE = 'MyDatabase';
 export const DEFAULT_SERVER_COLLATION = 'SQL_Latin1_General_CP1_CI_AS';
 /** Server collations offered for a new local server (first is SQL Server's own default). */
@@ -68,6 +77,19 @@ export function saPasswordProblem(p: string): string | null {
   if (p.length > 128) return 'At most 128 characters';
   const kinds = [/[A-Z]/, /[a-z]/, /\d/, /[^A-Za-z0-9]/].filter((r) => r.test(p)).length;
   if (kinds < 3) return 'Use at least three of: uppercase, lowercase, digits, symbols';
+  return null;
+}
+
+/** Windows also passes the password through Microsoft's setup file, which cannot hold quotes. */
+export function windowsPasswordProblem(p: string): string | null {
+  if (/["\r\n]/.test(p) || /[^\x20-\x7e]/.test(p)) return 'Use letters, digits and symbols except "';
+  return saPasswordProblem(p);
+}
+
+/** SQL Server named-instance rules: up to 16 letters, digits or _, starting with a letter or _. */
+export function instanceNameProblem(name: string): string | null {
+  if (!/^[A-Za-z_][A-Za-z0-9_]{0,15}$/.test(name)) return 'Up to 16 letters, digits or _, starting with a letter';
+  if (/^(MSSQLSERVER|DEFAULT)$/i.test(name)) return 'This name is reserved';
   return null;
 }
 
