@@ -83,7 +83,7 @@ jobs:
     name: windows-latest (SQL Server Express install)
     if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 100
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       SMOKE_SQL_EXPRESS: '1'
@@ -109,4 +109,9 @@ jobs:
       - name: Setup log on failure
         if: failure()
         shell: pwsh
-        run: Get-ChildItem 'C:\Program Files\Microsoft SQL Server\*\Setup Bootstrap\Log\Summary.txt' -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_ -Tail 60 }
+        run: |
+          Get-ChildItem 'C:\Program Files\Microsoft SQL Server\*\Setup Bootstrap\Log\Summary.txt' -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_ -Tail 60 }
+          # Also as an annotation, readable on the run page without signing in.
+          $t = Get-ChildItem 'C:\Program Files\Microsoft SQL Server\*\Setup Bootstrap\Log\Summary.txt' -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object { (Get-Content $_ -TotalCount 40) -join '%0A' }
+          if ($t) { Write-Output "::warning title=Setup Summary.txt::$t" } else { Write-Output "::warning title=Setup Summary.txt::No setup log (setup.exe never ran)" }
+          Get-ChildItem $env:TEMP -Filter 'sql-graphic-tool-express-*' -Directory -ErrorAction SilentlyContinue | ForEach-Object { Write-Output "::warning title=Work folder::$((Get-ChildItem $_.FullName -Recurse -Depth 1 | ForEach-Object { '{0} {1}' -f $_.FullName, $_.Length }) -join '%0A')" }

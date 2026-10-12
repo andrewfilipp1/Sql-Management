@@ -131,7 +131,8 @@ try {
   // Full SQL Server Express install with the user's choices (separate CI job: it takes several minutes).
   if (process.env.SMOKE_SQL_EXPRESS) {
     const pw = 'Smoke_Pass123!';
-    const inst = await ipc('installLocalServer', {
+    // Start the install without waiting on it, and print every step change, so a hang shows where it stopped.
+    await evaluate(`window.__inst = window.schemascope.invoke('installLocalServer', ${JSON.stringify({
       acceptLicenses: true,
       name: 'Express (smoke)',
       instance: 'SGTSMOKE',
@@ -141,9 +142,27 @@ try {
       tcp: true,
       port: 14333,
       database: { name: 'Πελάτες' },
-    });
+    })}).then((r) => (window.__instDone = r)); 0`);
+    const fmt = (x) => x.steps.map((t) => `${t.id}=${t.status}${t.detail ? `(${t.detail})` : ''}`).join(' ');
+    const started = Date.now();
+    const history = [];
+    let inst = null;
+    while (!inst) {
+      await sleep(20_000);
+      inst = await evaluate('window.__instDone ?? null');
+      const live = await ipc('localServerState');
+      const line = live.ok ? fmt(live.data).replace(/ \d+ MB/g, ' n MB') : live.error;
+      if (line !== history.at(-1)) {
+        history.push(line);
+        console.log(`[${Math.round((Date.now() - started) / 60_000)} min] ${live.ok ? fmt(live.data) : live.error}`);
+      }
+      if (!inst && Date.now() - started > 70 * 60_000) {
+        if (process.env.GITHUB_ACTIONS) console.log(`::error title=Express install timed out::${history.slice(-8).join('%0A')}`);
+        throw new Error(`Express install did not finish in 70 minutes; last: ${history.at(-1)}`);
+      }
+    }
     const st = inst.ok ? inst.data : null;
-    check('Express: installed and ready', !!st?.ready, st ? `${st.error ?? ''} ${st.steps.map((x) => `${x.id}=${x.status}${x.detail ? `(${x.detail})` : ''}`).join(' ')}` : inst.error);
+    check('Express: installed and ready', !!st?.ready, st ? `${st.error ?? ''} ${fmt(st)}` : inst.error);
     if (st?.ready) {
       const q = await ipc('query', st.connId, 'master', "SELECT CAST(SERVERPROPERTY('Collation') AS nvarchar(100)), CAST(SERVERPROPERTY('IsIntegratedSecurityOnly') AS int), CAST(DATABASEPROPERTYEX(N'Πελάτες', 'Collation') AS nvarchar(100)), SUSER_SNAME(), IS_SRVROLEMEMBER('sysadmin')");
       const r = q.ok ? q.data.results[0].rows[0] : [];
