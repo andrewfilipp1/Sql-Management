@@ -594,13 +594,21 @@ async function runElevated(code: string, timeout: number): Promise<RunResult> {
   }
 }
 
-async function microsoftSigned(file: string): Promise<boolean> {
+/** Authenticode check through Windows itself. Returns null when the file is validly signed by Microsoft, else why not. */
+async function signatureProblem(file: string): Promise<string | null> {
   const r = await run(
     'powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-Command', `$s = Get-AuthenticodeSignature -LiteralPath ${psQuote(file)}; if ($s.Status -eq 'Valid' -and $s.SignerCertificate.Subject -match 'O=Microsoft Corporation') { 'ok' }`],
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `$s = Get-AuthenticodeSignature -LiteralPath ${psQuote(file)}; '{0}|{1}|{2}' -f $s.Status, $s.SignerCertificate.Subject, $s.StatusMessage`,
+    ],
     60_000,
   );
-  return r.stdout.trim() === 'ok';
+  const [status = '', subject = '', message = ''] = r.stdout.trim().split('|');
+  if (status === 'Valid' && /O=Microsoft Corporation/.test(subject)) return null;
+  return `${status || 'no result'}${subject ? `, signer ${subject.split(',')[0]}` : ''}${message ? ` (${message})` : ''}${r.code && !r.stdout ? ` ${firstLine(r.stderr)}` : ''}`;
 }
 
 function folderSize(dir: string): number {
@@ -617,7 +625,8 @@ async function downloadExpress(work: string): Promise<string> {
   step('download', 'working', 'Downloading the installer…');
   const boot = path.join(work, 'SQL-SSEI-Expr.exe');
   await download(EXPRESS_BOOTSTRAPPER, boot, (pct) => step('download', 'working', 'Downloading the installer…', pct));
-  if (!(await microsoftSigned(boot))) throw new Error('The downloaded installer is not signed by Microsoft; it was not run');
+  const bootProblem = await signatureProblem(boot);
+  if (bootProblem) throw new Error(`The downloaded installer is not validly signed by Microsoft (${bootProblem}); it was not run`);
 
   const media = path.join(work, 'media');
   fs.mkdirSync(media);
@@ -634,7 +643,8 @@ async function downloadExpress(work: string): Promise<string> {
   const pkg = fs.readdirSync(media).find((n) => /^SQLEXPR.*\.exe$/i.test(n));
   if (!pkg) throw new Error(`The SQL Server Express download failed: ${firstLine(r.stderr || r.stdout) || `exit code ${r.code}`}`);
   const pkgPath = path.join(media, pkg);
-  if (!(await microsoftSigned(pkgPath))) throw new Error('The SQL Server Express package is not signed by Microsoft; it was not run');
+  const pkgProblem = await signatureProblem(pkgPath);
+  if (pkgProblem) throw new Error(`The SQL Server Express package is not validly signed by Microsoft (${pkgProblem}); it was not run`);
 
   step('download', 'working', 'Unpacking…');
   const unpacked = path.join(work, 'setup');
