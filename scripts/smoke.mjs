@@ -181,7 +181,7 @@ try {
     const st = inst.ok ? inst.data : null;
     check('Express: installed and ready', !!st?.ready, st ? `${st.error ?? ''} ${fmt(st)}` : inst.error);
     if (st?.ready) {
-      const q = await ipc('query', st.connId, 'master', "SELECT CAST(SERVERPROPERTY('Collation') AS nvarchar(100)), CAST(SERVERPROPERTY('IsIntegratedSecurityOnly') AS int), CAST(DATABASEPROPERTYEX(N'Πελάτες', 'Collation') AS nvarchar(100)), SUSER_SNAME(), IS_SRVROLEMEMBER('sysadmin')");
+      const q = await ipc('query', st.connId, 'master', "SELECT CAST(SERVERPROPERTY('Collation') AS nvarchar(100)), CAST(SERVERPROPERTY('IsIntegratedSecurityOnly') AS int), (SELECT collation_name FROM sys.databases WHERE name = N'Πελάτες'), SUSER_SNAME(), IS_SRVROLEMEMBER('sysadmin')");
       const r = q.ok ? q.data.results[0].rows[0] : [];
       check('Express: server collation Greek_CI_AS', r[0] === 'Greek_CI_AS', q.ok ? JSON.stringify(r) : q.error);
       check('Express: mixed authentication on', Number(r[1]) === 0, String(r[1]));
@@ -194,6 +194,23 @@ try {
         const done = (v) => (sock.destroy(), r(v));
         sock.once('connect', () => done('open')).once('error', (e) => done(e.code)).setTimeout(10_000, () => done('timeout'));
       });
+      // The same sign-in straight through tedious in this Node process, with its debug trace, to tell a driver hang from an app hang.
+      const trace = [];
+      const t0 = Date.now();
+      const direct = await (async () => {
+        const { default: mssql } = await import('mssql');
+        const pool = new mssql.ConnectionPool({ server: '127.0.0.1', port: 14333, user: 'sa', password: pw, connectionTimeout: 20_000, debug: true, options: { encrypt: false, trustServerCertificate: true, debug: { packet: true, token: true, payload: false, data: false } } });
+        pool.on('debug', (_c, m) => trace.push(`${Date.now() - t0}ms ${String(m).slice(0, 120)}`));
+        try {
+          const r = await Promise.race([pool.connect().then((p) => p.request().query('SELECT @@VERSION AS v')), sleep(45_000).then(() => { throw new Error('no result in 45 s'); })]);
+          return `ok ${String(r.recordset[0].v).split('\n')[0]}`;
+        } catch (e) {
+          return `failed: ${e.message}`;
+        } finally {
+          pool.close().catch(() => {});
+        }
+      })();
+      if (process.env.GITHUB_ACTIONS) console.log(`::notice title=Direct tedious sign-in (${Date.now() - t0} ms)::${direct}%0A${trace.slice(-12).join('%0A').replace(/[\r\n]+/g, ' ')}`);
       console.log('diag', JSON.stringify(diag.ok ? diag.data.results[0].rows[0] : diag.error), 'tcp', tcpOpen);
       if (process.env.GITHUB_ACTIONS) console.log(`::notice title=Express diagnostics::${JSON.stringify(diag.ok ? diag.data.results[0].rows[0] : diag.error)} tcp 14333: ${tcpOpen}`);
       const sa = await ipc('testConnection', { name: 'sa', kind: 'mssql', host: '127.0.0.1', port: 14333, user: 'sa', password: pw, trustServerCertificate: true });
