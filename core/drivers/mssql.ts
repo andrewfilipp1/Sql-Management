@@ -66,6 +66,15 @@ export class MssqlDriver extends Driver {
   private pool!: sql.ConnectionPool;
   private lib: MssqlLib = sql;
 
+  /**
+   * A request from this driver's own library. `pool.request()` would use whichever library mssql loaded
+   * last (shared state), so after one Windows-authentication (ODBC) connection, sign-ins with a password
+   * would build ODBC requests on a tedious pool and hang.
+   */
+  private request(pool: sql.ConnectionPool = this.pool): sql.Request {
+    return new this.lib.Request(pool);
+  }
+
   private get integrated() {
     return this.cfg.authType === 'windows';
   }
@@ -157,13 +166,12 @@ export class MssqlDriver extends Driver {
   }
 
   async serverVersion() {
-    const r = await this.pool.request().query(`SELECT @@VERSION AS v`);
+    const r = await this.request().query(`SELECT @@VERSION AS v`);
     return String(r.recordset[0].v).split('\n')[0].trim();
   }
 
   async listDatabases() {
-    const r = await this.pool
-      .request()
+    const r = await this.request()
       .query(`SELECT name FROM sys.databases WHERE HAS_DBACCESS(name) = 1 AND state = 0 ORDER BY name`);
     return r.recordset.map((x: any) => String(x.name));
   }
@@ -188,7 +196,7 @@ export class MssqlDriver extends Driver {
     };
   }
 
-  exec: Exec = (text, params = []) => this.run(this.pool.request(), text, params);
+  exec: Exec = (text, params = []) => this.run(this.request(), text, params);
 
   async transaction<T>(fn: (exec: Exec) => Promise<T>): Promise<T> {
     const tx = new this.lib.Transaction(this.pool);
@@ -211,7 +219,7 @@ export class MssqlDriver extends Driver {
     const results: ResultSet[] = [];
     const messages: string[] = [];
     for (const batch of splitGoBatches(text)) {
-      const req = this.pool.request();
+      const req = this.request();
       req.arrayRowMode = true;
       req.on('info', (m: { message: string }) => messages.push(m.message));
       const r = (await req.query(batch)) as any;
@@ -232,7 +240,7 @@ export class MssqlDriver extends Driver {
   }
 
   async getSchema(): Promise<SchemaSnapshot> {
-    const q = async (text: string) => (await this.pool.request().query(text)).recordset as Record<string, any>[];
+    const q = async (text: string) => (await this.request().query(text)).recordset as Record<string, any>[];
     const [cols, idx, fks, counts, routines, schemas] = await Promise.all([
       q(`SELECT s.name AS [schema], o.name AS [table], o.type AS otype, c.name AS [column],
                 TYPE_NAME(c.user_type_id) AS type_name, c.max_length, c.precision, c.scale,
@@ -344,8 +352,7 @@ export class MssqlDriver extends Driver {
   }
 
   private async definition(schema: string | undefined, name: string): Promise<string | null> {
-    const r = await this.pool
-      .request()
+    const r = await this.request()
       .input('s', schema ?? 'dbo')
       .input('n', name)
       .query(`SELECT OBJECT_DEFINITION(OBJECT_ID(QUOTENAME(@s) + '.' + QUOTENAME(@n))) AS def`);
@@ -361,7 +368,7 @@ export class MssqlDriver extends Driver {
   }
 
   async activity(): Promise<ActivitySession[]> {
-    const r = await this.pool.request().query(`
+    const r = await this.request().query(`
       SELECT CAST(s.session_id AS varchar(10)) AS id, s.login_name AS [user],
              DB_NAME(COALESCE(r.database_id, s.database_id)) AS [database],
              s.host_name + ISNULL(' / ' + s.program_name, '') AS client,
@@ -392,11 +399,11 @@ export class MssqlDriver extends Driver {
   async killSession(id: string) {
     if (!/^\d+$/.test(id)) throw new HttpError(400, 'Invalid session id');
     // KILL takes no parameters; the id is validated as an integer above. SQL Server has no "cancel only".
-    await this.pool.request().query(`KILL ${Number(id)}`);
+    await this.request().query(`KILL ${Number(id)}`);
   }
 
   async security(): Promise<SecurityInfo> {
-    const q = async (text: string) => (await this.pool.request().query(text)).recordset as Record<string, any>[];
+    const q = async (text: string) => (await this.request().query(text)).recordset as Record<string, any>[];
     const [dbp, members, perms, logins] = await Promise.all([
       q(`SELECT dp.name, dp.type, dp.is_fixed_role, sp.name AS login_name
          FROM sys.database_principals dp LEFT JOIN sys.server_principals sp ON sp.sid = dp.sid
@@ -439,9 +446,9 @@ export class MssqlDriver extends Driver {
     await single.connect();
     try {
       const flag = analyze ? 'STATISTICS XML' : 'SHOWPLAN_XML';
-      await single.request().batch(`SET ${flag} ON`);
+      await this.request(single).batch(`SET ${flag} ON`);
       try {
-        const r = (await single.request().batch(text)) as any;
+        const r = (await this.request(single).batch(text)) as any;
         const sets: any[][] = r.recordsets ?? [];
         // The plan is the last recordset with a single XML column.
         for (let i = sets.length - 1; i >= 0; i--) {
@@ -451,7 +458,7 @@ export class MssqlDriver extends Driver {
         }
         throw new HttpError(400, 'SQL Server returned no plan for this statement');
       } finally {
-        await single.request().batch(`SET ${flag} OFF`).catch(() => {});
+        await this.request(single).batch(`SET ${flag} OFF`).catch(() => {});
       }
     } finally {
       await single.close().catch(() => {});
