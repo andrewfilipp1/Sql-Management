@@ -1,18 +1,40 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { CheckCircle2, Circle, Database, Download, ExternalLink, Loader2, Plus, RefreshCw, Server, XCircle } from 'lucide-react';
+import { CheckCircle2, Circle, Copy, Database, Download, ExternalLink, Eye, EyeOff, Loader2, Plus, RefreshCw, Server, Settings2, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { LICENSES, type LocalEdition, type LocalServerState, type SetupStep } from '../../shared/localServer';
+import {
+  databaseNameProblem,
+  DEFAULT_LOCAL_DATABASE,
+  DEFAULT_SERVER_COLLATION,
+  LICENSES,
+  LOCAL_SERVER_NAME,
+  MSSQL_COLLATIONS,
+  portProblem,
+  saPasswordProblem,
+  SERVER_COLLATIONS,
+  type LocalEdition,
+  type LocalServerState,
+  type SetupStep,
+} from '../../shared/localServer';
 import { openDashboard } from '../lib/actions';
 import { api, platform } from '../lib/api';
 import { useStore } from '../lib/store';
 import { cn } from '../lib/utils';
-import { Button, Checkbox, EmptyState, Field, Select, Spinner, spring } from './ui';
+import { Button, Checkbox, EmptyState, Field, Input, Select, Spinner, spring } from './ui';
 
 /** One-click local SQL Server: shows each requirement, what is already there, and installs the rest. */
 export function LocalServerTab() {
   const [state, setState] = useState<LocalServerState | null>(null);
   const [accepted, setAccepted] = useState(false);
   const [edition, setEdition] = useState<LocalEdition>('Express');
+  const [name, setName] = useState(LOCAL_SERVER_NAME);
+  const [port, setPort] = useState('');
+  const [ownPassword, setOwnPassword] = useState(false);
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [collation, setCollation] = useState(DEFAULT_SERVER_COLLATION);
+  const [makeDb, setMakeDb] = useState(true);
+  const [dbName, setDbName] = useState(DEFAULT_LOCAL_DATABASE);
+  const [dbCollation, setDbCollation] = useState('');
 
   useEffect(() => {
     const off = window.schemascope?.onLocalServer(setState);
@@ -30,14 +52,39 @@ export function LocalServerTab() {
 
   const missing = state.steps.filter((s) => s.status === 'missing' || s.status === 'failed' || s.status === 'pending');
   const mac = platform === 'darwin';
+  // Server settings only apply when the server is created; an existing one keeps its own.
+  const fixed = !!state.server;
+  const portValue = port.trim() ? Number(port) : (state.suggestedPort ?? 1433);
+  const problems = {
+    name: !name.trim() ? 'Enter a name' : null,
+    port: mac && !fixed && port.trim() ? portProblem(Number(port)) : null,
+    password: mac && !fixed && ownPassword ? saPasswordProblem(password) : null,
+    db: makeDb ? databaseNameProblem(dbName) : null,
+  };
+  const invalid = Object.values(problems).some(Boolean);
 
   const install = async () => {
     try {
-      const s = await api.installLocalServer({ edition, acceptLicenses: accepted });
+      const s = await api.installLocalServer({
+        acceptLicenses: accepted,
+        name: name.trim(),
+        edition,
+        port: mac && !fixed ? portValue : undefined,
+        password: mac && !fixed && ownPassword ? password : undefined,
+        serverCollation: mac && !fixed ? collation : undefined,
+        database: makeDb ? { name: dbName.trim(), collation: dbCollation || undefined } : undefined,
+      });
       setState(s);
       if (s.ready) {
         await useStore.getState().loadConnections();
-        useStore.getState().toast('Local SQL Server is ready', 'success');
+        useStore.getState().toast(s.database ? `Local SQL Server is ready with database “${s.database}”` : 'Local SQL Server is ready', 'success');
+        if (s.database && s.connId) {
+          const session = await useStore.getState().connect(s.connId);
+          if (session) {
+            useStore.getState().toggle(s.connId, true);
+            openDashboard(s.connId, s.database);
+          }
+        }
       }
     } catch (e) {
       useStore.getState().toast((e as Error).message, 'error');
@@ -90,6 +137,8 @@ export function LocalServerTab() {
           )}
         </AnimatePresence>
 
+        {state.ready && state.server && <ServerSummary info={state.server} database={state.database} />}
+
         {state.ready ? (
           <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={spring} className="mt-5 flex flex-wrap items-center gap-2">
             <span className="flex items-center gap-1.5 text-[13px] text-ok">
@@ -105,14 +154,101 @@ export function LocalServerTab() {
           </motion.div>
         ) : (
           <div className="mt-5 space-y-3">
-            {mac && (
-              <Field label="Edition" hint={edition === 'Express' ? 'Free, also for production use. Databases up to 10 GB.' : 'Free with all features, for development and testing only (not production).'}>
-                <Select value={edition} onChange={(e) => setEdition(e.target.value as LocalEdition)} disabled={state.busy} className="max-w-xs">
-                  <option value="Express">Express</option>
-                  <option value="Developer">Developer</option>
-                </Select>
-              </Field>
-            )}
+            <fieldset disabled={state.busy} className="glass space-y-4 rounded-2xl p-4" data-testid="ls-settings">
+              <legend className="sr-only">Settings</legend>
+              <div className="flex items-center gap-2 text-[13px] font-medium">
+                <Settings2 className="size-4 text-accent" /> Settings
+              </div>
+              {fixed && mac && (
+                <p className="rounded-lg bg-white/[0.03] px-3 py-2 text-xs text-muted">
+                  A local server already exists (port {state.server?.port}, {state.server?.edition}, {state.server?.collation}). Its port, password and collation stay as they are.
+                </p>
+              )}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Server name" hint={problems.name ? <span className="text-warn">{problems.name}</span> : 'How it appears in the sidebar.'}>
+                  <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} data-testid="ls-name" />
+                </Field>
+                {mac && !fixed && (
+                  <Field label="Edition" hint={edition === 'Express' ? 'Free, also for production. Databases up to 10 GB.' : 'All features; development and testing only.'}>
+                    <Select value={edition} onChange={(e) => setEdition(e.target.value as LocalEdition)}>
+                      <option value="Express">Express</option>
+                      <option value="Developer">Developer</option>
+                    </Select>
+                  </Field>
+                )}
+                {mac && !fixed && (
+                  <Field label="Port" hint={problems.port ? <span className="text-warn">{problems.port}</span> : `Connect with localhost,${portValue}. Reachable only from this Mac.`}>
+                    <Input value={port} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))} placeholder={String(state.suggestedPort ?? 1433)} inputMode="numeric" data-testid="ls-port" />
+                  </Field>
+                )}
+                {mac && !fixed && (
+                  <Field label="Server collation" hint="How text is sorted and compared by default. Fixed once the server is created.">
+                    <Select value={collation} onChange={(e) => setCollation(e.target.value)} data-testid="ls-collation">
+                      {SERVER_COLLATIONS.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                          {c === DEFAULT_SERVER_COLLATION ? ' (default)' : ''}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                )}
+              </div>
+
+              {mac && !fixed && (
+                <div className="space-y-2">
+                  <div className="text-[11px] font-semibold tracking-wider text-muted uppercase">Administrator (sa) password</div>
+                  <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[13px]">
+                    <label className="flex items-center gap-2">
+                      <input type="radio" name="ls-pw" checked={!ownPassword} onChange={() => setOwnPassword(false)} className="accent-indigo-400" />
+                      Generate a strong password (recommended)
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input type="radio" name="ls-pw" checked={ownPassword} onChange={() => setOwnPassword(true)} className="accent-indigo-400" data-testid="ls-own-pw" />
+                      Choose my own
+                    </label>
+                  </div>
+                  {ownPassword ? (
+                    <Field label="" hint={problems.password ? <span className="text-warn">{problems.password}</span> : 'Saved encrypted on this Mac. Fixed once the server is created.'}>
+                      <div className="relative max-w-sm">
+                        <Input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" className="pr-9" data-testid="ls-password" />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword((v) => !v)}
+                          className="absolute inset-y-0 right-2 flex items-center text-faint hover:text-fg"
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
+                          title={showPassword ? 'Hide password' : 'Show password'}
+                        >
+                          {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                        </button>
+                      </div>
+                    </Field>
+                  ) : (
+                    <p className="text-xs text-muted">Saved encrypted on this Mac. You can copy it later from this page, e.g. for another SQL tool.</p>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-2 border-t border-line pt-3">
+                <Checkbox checked={makeDb} onChange={setMakeDb} label={<span className="text-[13px]">Create a database</span>} />
+                {makeDb && (
+                  <div className="grid gap-3 pl-5 sm:grid-cols-2">
+                    <Field label="Database name" hint={problems.db ? <span className="text-warn">{problems.db}</span> : 'Opens when the install finishes.'}>
+                      <Input value={dbName} onChange={(e) => setDbName(e.target.value)} data-testid="ls-db-name" />
+                    </Field>
+                    <Field label="Database collation" hint="Empty = same as the server.">
+                      <Select value={dbCollation} onChange={(e) => setDbCollation(e.target.value)} data-testid="ls-db-collation">
+                        {MSSQL_COLLATIONS.map((c) => (
+                          <option key={c} value={c}>
+                            {c || 'Same as server'}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </div>
+                )}
+              </div>
+            </fieldset>
             <div className="rounded-xl border border-line bg-white/[0.02] p-3 text-xs leading-relaxed text-muted">
               <Checkbox
                 checked={accepted}
@@ -136,7 +272,7 @@ export function LocalServerTab() {
               <Button
                 variant="primary"
                 icon={state.busy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
-                disabled={!accepted || state.busy}
+                disabled={!accepted || state.busy || invalid}
                 onClick={() => void install()}
                 data-testid="ls-install"
               >
@@ -150,6 +286,58 @@ export function LocalServerTab() {
         )}
       </div>
     </div>
+  );
+}
+
+function ServerSummary({ info, database }: { info: NonNullable<LocalServerState['server']>; database?: string }) {
+  const [copied, setCopied] = useState(false);
+  const address = info.port ? `localhost,${info.port}` : info.host;
+  const copy = async () => {
+    if (await api.copyLocalServerPassword().catch(() => false)) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    }
+  };
+  return (
+    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={spring} className="glass mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-2xl p-4 text-[13px]" data-testid="ls-summary">
+      <span className="text-muted">Server</span>
+      <span className="font-mono">{address}</span>
+      {info.user && (
+        <>
+          <span className="text-muted">User</span>
+          <span className="flex items-center gap-2">
+            <span className="font-mono">{info.user}</span>
+            <button onClick={() => void copy()} className="inline-flex items-center gap-1 text-xs text-accent hover:underline" data-testid="ls-copy-pw">
+              <Copy className="size-3" /> {copied ? 'Password copied' : 'Copy password'}
+            </button>
+          </span>
+        </>
+      )}
+      {!info.user && (
+        <>
+          <span className="text-muted">Sign-in</span>
+          <span>Your Windows account</span>
+        </>
+      )}
+      {info.edition && (
+        <>
+          <span className="text-muted">Edition</span>
+          <span>{info.edition}</span>
+        </>
+      )}
+      {info.collation && (
+        <>
+          <span className="text-muted">Collation</span>
+          <span className="font-mono">{info.collation}</span>
+        </>
+      )}
+      {database && (
+        <>
+          <span className="text-muted">Database</span>
+          <span className="font-mono">{database}</span>
+        </>
+      )}
+    </motion.div>
   );
 }
 

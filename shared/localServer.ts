@@ -25,7 +25,55 @@ export interface LocalServerState {
   ready: boolean;
   /** Saved connection to the local server. */
   connId?: string;
+  /** Database created by the last install, opened when it finishes. */
+  database?: string;
+  /** Settings of a server that already exists (fixed until it is recreated). */
+  server?: LocalServerInfo;
+  /** A free port to suggest for a new server. */
+  suggestedPort?: number;
   error?: string;
+}
+
+export interface LocalServerInfo {
+  host: string;
+  port?: number;
+  user?: string;
+  edition?: LocalEdition;
+  collation?: string;
+}
+
+/** What the user chose before pressing Install. Server settings apply when the server is first created. */
+export interface LocalServerOptions {
+  acceptLicenses: boolean;
+  /** Connection name in the sidebar. */
+  name?: string;
+  edition?: LocalEdition;
+  port?: number;
+  /** Own sa password; empty = generate a strong one. */
+  password?: string;
+  serverCollation?: string;
+  /** Create this database once the server is up. */
+  database?: { name: string; collation?: string };
+}
+
+export const LOCAL_SERVER_NAME = 'Local SQL Server';
+export const DEFAULT_LOCAL_DATABASE = 'MyDatabase';
+export const DEFAULT_SERVER_COLLATION = 'SQL_Latin1_General_CP1_CI_AS';
+/** Server collations offered for a new local server (first is SQL Server's own default). */
+export const SERVER_COLLATIONS = [DEFAULT_SERVER_COLLATION, 'Greek_CI_AS', 'Latin1_General_CI_AS', 'Latin1_General_100_CI_AS_SC_UTF8'];
+
+/** SQL Server's password policy for sa: 8–128 characters from at least three of upper, lower, digits, symbols. */
+export function saPasswordProblem(p: string): string | null {
+  if (p.length < 8) return 'At least 8 characters';
+  if (p.length > 128) return 'At most 128 characters';
+  const kinds = [/[A-Z]/, /[a-z]/, /\d/, /[^A-Za-z0-9]/].filter((r) => r.test(p)).length;
+  if (kinds < 3) return 'Use at least three of: uppercase, lowercase, digits, symbols';
+  return null;
+}
+
+export function portProblem(port: number): string | null {
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) return 'Use a port between 1024 and 65535';
+  return null;
 }
 
 export const LOCAL_SERVER_EVENT = 'schemascope:local-server';

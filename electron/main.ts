@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, safeStorage, shell } from 'electron';
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -13,7 +13,7 @@ import { ensureDemoDatabase } from '../core/demo.ts';
 import { loadCsv, writeDatabaseScript } from '../core/transfer.ts';
 import { backupToFile, restoreFromFile } from '../core/backup.ts';
 import { getConnection } from '../core/store.ts';
-import { setLocalServerEmitter } from '../core/localServer.ts';
+import { localServerPassword, setLocalServerEmitter } from '../core/localServer.ts';
 import { inspectBak } from '../core/bak.ts';
 import { LOCAL_SERVER_EVENT } from '../shared/localServer.ts';
 
@@ -65,6 +65,13 @@ const nativeApi: Pick<Api, NativeMethods> = {
   downloadUpdate,
   async installUpdate() {
     installUpdate();
+  },
+
+  async copyLocalServerPassword() {
+    const pw = localServerPassword();
+    if (!pw) return false;
+    clipboard.writeText(pw);
+    return true;
   },
 
   async pickBak(connId) {

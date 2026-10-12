@@ -30,7 +30,8 @@ export type NativeMethods =
   | 'checkForUpdates'
   | 'downloadUpdate'
   | 'installUpdate'
-  | 'pickBak';
+  | 'pickBak'
+  | 'copyLocalServerPassword';
 export type CoreApi = Omit<Api, NativeMethods>;
 
 // Introspection can be costly on large databases, so keep one snapshot per live driver.

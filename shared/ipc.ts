@@ -16,7 +16,7 @@ import type {
   TableRef,
 } from './types.ts';
 import type { UpdateState } from './update.ts';
-import type { CreateDatabaseOptions, LocalEdition, LocalServerState } from './localServer.ts';
+import type { CreateDatabaseOptions, LocalServerOptions, LocalServerState } from './localServer.ts';
 import type { Notebook, NotebookSummary } from './notebook.ts';
 import type { AiRequest, AiResponse, AiSettings, AiState } from './ai.ts';
 import type { ApiKeyInfo, IntegrationsState, KeyAccess, RequestLogEntry, SavedEndpoint, ServerSettings } from './integrations.ts';
@@ -80,7 +80,9 @@ export interface Api {
   createDatabase(connId: string, name: string, opts: CreateDatabaseOptions): Promise<{ databases: string[] }>;
   localServerState(): Promise<LocalServerState>;
   checkLocalServer(): Promise<LocalServerState>;
-  installLocalServer(opts: { edition?: LocalEdition; acceptLicenses: boolean }): Promise<LocalServerState>;
+  installLocalServer(opts: LocalServerOptions): Promise<LocalServerState>;
+  /** Copies the local server's sa password to the clipboard (desktop app only). */
+  copyLocalServerPassword(): Promise<boolean>;
 
   /** Restore a SQL Server .bak as a new database. `pickBak` asks for a local file (main process). */
   pickBak(connId: string): Promise<BakInfo | null>;

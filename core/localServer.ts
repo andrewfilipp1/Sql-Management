@@ -5,7 +5,20 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import type { ConnectionConfig } from '../shared/types.ts';
-import type { LocalEdition, LocalServerState, SetupStatus, SetupStep } from '../shared/localServer.ts';
+import { createDatabaseSql } from '../shared/dialect.ts';
+import {
+  databaseNameProblem,
+  DEFAULT_SERVER_COLLATION,
+  LOCAL_SERVER_NAME,
+  portProblem,
+  saPasswordProblem,
+  SERVER_COLLATIONS,
+  type LocalEdition,
+  type LocalServerOptions,
+  type LocalServerState,
+  type SetupStatus,
+  type SetupStep,
+} from '../shared/localServer.ts';
 import { openDriver } from './pool.ts';
 import { decodeSecret, encodeSecret, getDataDir, listConnections, upsertConnection } from './store.ts';
 import { HttpError } from './util.ts';
@@ -18,7 +31,8 @@ import { HttpError } from './util.ts';
  * show the system's own password / UAC prompt.
  */
 
-const CONTAINER = 'sql-graphic-tool-mssql';
+// Tests use their own container (SCHEMASCOPE_LOCAL_CONTAINER) so a real local server is never touched.
+const CONTAINER = process.env.SCHEMASCOPE_LOCAL_CONTAINER || 'sql-graphic-tool-mssql';
 const IMAGE = 'mcr.microsoft.com/mssql/server:2022-latest';
 const EXPRESS_SERVICE = 'MSSQL$SQLEXPRESS';
 const isMac = process.platform === 'darwin';
@@ -82,6 +96,18 @@ export function localServerState(): LocalServerState {
   return state;
 }
 
+/** The local server's sa password, for copying to the clipboard. Never sent over the HTTP API. */
+export function localServerPassword(): string | null {
+  return readSaved()?.password ?? null;
+}
+
+/** The optional “create a database” step exists only while an install asked for one. */
+function setDatabaseStep(name?: string) {
+  state.steps = state.steps.filter((s) => s.id !== 'database');
+  if (name) state.steps.push({ id: 'database', label: `Database “${name}”`, status: 'pending' });
+  publish();
+}
+
 // ---------------------------------------------------------------- saved local server settings
 
 interface Saved {
@@ -90,6 +116,8 @@ interface Saved {
   edition: LocalEdition;
   /** Docker volume holding the databases. SQL Server keeps the sa password of the volume's first start. */
   volume: string;
+  /** Server collation chosen at creation. */
+  collation?: string;
 }
 const savedFile = () => path.join(getDataDir(), 'local-sqlserver.json');
 function readSaved(): (Omit<Saved, 'password'> & { password: string }) | null {
@@ -100,7 +128,7 @@ function readSaved(): (Omit<Saved, 'password'> & { password: string }) | null {
     return null;
   }
 }
-function writeSaved(s: { port: number; password: string; edition: LocalEdition; volume: string }) {
+function writeSaved(s: { port: number; password: string; edition: LocalEdition; volume: string; collation?: string }) {
   fs.mkdirSync(getDataDir(), { recursive: true });
   fs.writeFileSync(savedFile(), JSON.stringify({ ...s, password: encodeSecret(s.password) }, null, 2), { mode: 0o600 });
 }
@@ -182,6 +210,7 @@ async function expressService(): Promise<'running' | 'stopped' | null> {
 export async function checkLocalServer(): Promise<LocalServerState> {
   if (!state.supported || state.busy) return state;
   publish({ busy: true, error: undefined });
+  setDatabaseStep();
   try {
     if (isMac) {
       if (appleSilicon()) step('rosetta', (await checkRosetta()) ? 'ok' : 'missing');
@@ -199,7 +228,13 @@ export async function checkLocalServer(): Promise<LocalServerState> {
       }
       const conn = localConnection('docker');
       step('connection', conn ? 'ok' : 'missing', conn?.name);
-      publish({ ready: state.steps.every((s) => s.status === 'ok'), connId: conn?.id });
+      const saved = running && (await containerState()) ? readSaved() : null;
+      publish({
+        ready: state.steps.every((s) => s.status === 'ok'),
+        connId: conn?.id,
+        server: saved ? { host: 'localhost', port: saved.port, user: 'sa', edition: saved.edition, collation: saved.collation ?? DEFAULT_SERVER_COLLATION } : undefined,
+        suggestedPort: saved ? undefined : await freePort([1433, 14330, 14331, 14332, 14333]),
+      });
     } else if (isWin) {
       const winget = (await run('winget', ['--version'], 20_000)).code === 0;
       step('winget', winget ? 'ok' : 'missing', winget ? undefined : 'Install “App Installer” from the Microsoft Store');
@@ -208,7 +243,7 @@ export async function checkLocalServer(): Promise<LocalServerState> {
       step('service', svc === 'running' ? 'ok' : svc ? 'missing' : 'pending', svc === 'stopped' ? 'Stopped — will be started' : undefined);
       const conn = localConnection('express');
       step('connection', conn ? 'ok' : 'missing', conn?.name);
-      publish({ ready: state.steps.every((s) => s.status === 'ok'), connId: conn?.id });
+      publish({ ready: state.steps.every((s) => s.status === 'ok'), connId: conn?.id, server: svc ? { host: 'localhost\\SQLEXPRESS' } : undefined });
     }
   } catch (e) {
     publish({ error: (e as Error).message });
@@ -220,15 +255,38 @@ export async function checkLocalServer(): Promise<LocalServerState> {
 
 // ---------------------------------------------------------------- install
 
-export async function installLocalServer(opts: { edition?: LocalEdition; acceptLicenses: boolean }): Promise<LocalServerState> {
+/** Checks the user's choices; throws a 400 with a message the UI can show. */
+function validate(opts: LocalServerOptions) {
+  const name = opts.name?.trim();
+  if (name !== undefined && (!name || name.length > 100)) throw new HttpError(400, 'Enter a server name (up to 100 characters)');
+  if (opts.port !== undefined) {
+    const p = portProblem(opts.port);
+    if (p) throw new HttpError(400, p);
+  }
+  if (opts.password) {
+    const p = saPasswordProblem(opts.password);
+    if (p) throw new HttpError(400, `sa password: ${p}`);
+  }
+  if (opts.serverCollation && !SERVER_COLLATIONS.includes(opts.serverCollation)) throw new HttpError(400, 'Unknown server collation');
+  if (opts.database) {
+    const p = databaseNameProblem(opts.database.name);
+    if (p) throw new HttpError(400, `Database name: ${p}`);
+    if (opts.database.collation && !/^[A-Za-z0-9_]+$/.test(opts.database.collation)) throw new HttpError(400, 'Unknown database collation');
+  }
+}
+
+export async function installLocalServer(opts: LocalServerOptions): Promise<LocalServerState> {
   if (!state.supported) throw new HttpError(400, state.unsupportedReason ?? 'Not supported on this computer');
   if (!opts.acceptLicenses) throw new HttpError(400, 'Accept the license terms first');
+  validate(opts);
   if (state.busy) return state;
-  publish({ busy: true, error: undefined });
+  const database = opts.database ? { name: opts.database.name.trim(), collation: opts.database.collation || undefined } : undefined;
+  publish({ busy: true, error: undefined, database: undefined });
+  setDatabaseStep(database?.name);
   try {
-    if (isMac) await installMac(opts.edition === 'Developer' ? 'Developer' : 'Express');
-    else await installWindows();
-    publish({ ready: true });
+    const cfg = isMac ? await installMac(opts) : await installWindows(opts);
+    if (database) await createFirstDatabase(cfg, database);
+    publish({ ready: true, database: database?.name });
   } catch (e) {
     const failed = state.steps.find((s) => s.status === 'working' || s.status === 'checking');
     if (failed) step(failed.id, 'failed', (e as Error).message);
@@ -239,7 +297,8 @@ export async function installLocalServer(opts: { edition?: LocalEdition; acceptL
   return state;
 }
 
-async function installMac(edition: LocalEdition) {
+async function installMac(opts: LocalServerOptions): Promise<ConnectionConfig> {
+  const edition: LocalEdition = opts.edition === 'Developer' ? 'Developer' : 'Express';
   // 1. Rosetta
   if (appleSilicon()) {
     step('rosetta', 'checking');
@@ -280,6 +339,7 @@ async function installMac(edition: LocalEdition) {
   // 5. Container
   step('container', 'checking');
   let saved = readSaved();
+  let created = false;
   const cs = await containerState();
   if (cs === 'running' && saved) step('container', 'ok', `Already running on port ${saved.port}`);
   else if (cs && saved) {
@@ -294,9 +354,14 @@ async function installMac(edition: LocalEdition) {
       // the password of a volume's first start.
       await docker(['rm', '-f', CONTAINER], 60_000);
     }
-    const password = strongPassword();
-    const volume = `sql-graphic-tool-mssql-${crypto.randomBytes(4).toString('hex')}`;
-    const port = await freePort([1433, 14330, 14331, 14332, 14333]);
+    const password = opts.password || strongPassword();
+    const volume = `${CONTAINER}-${crypto.randomBytes(4).toString('hex')}`;
+    const collation = opts.serverCollation || DEFAULT_SERVER_COLLATION;
+    let port: number;
+    if (opts.port) {
+      if (!(await portFree(opts.port))) throw new Error(`Port ${opts.port} is already in use — choose another one`);
+      port = opts.port;
+    } else port = await freePort([1433, 14330, 14331, 14332, 14333]);
     step('container', 'working', `Creating SQL Server ${edition} on port ${port}…`);
     const r = await docker(
       [
@@ -306,6 +371,7 @@ async function installMac(edition: LocalEdition) {
         '-e', 'ACCEPT_EULA=Y',
         '-e', `MSSQL_PID=${edition}`,
         '-e', `MSSQL_SA_PASSWORD=${password}`,
+        '-e', `MSSQL_COLLATION=${collation}`,
         '-p', `127.0.0.1:${port}:1433`,
         '-v', `${volume}:/var/opt/mssql`,
         IMAGE,
@@ -313,8 +379,9 @@ async function installMac(edition: LocalEdition) {
       120_000,
     );
     if (r.code !== 0) throw new Error(`Could not create the container: ${firstLine(r.stderr)}`);
-    saved = { port, password, edition, volume };
+    saved = { port, password, edition, volume, collation };
     writeSaved(saved);
+    created = true;
     step('container', 'done', `Created on port ${port}`);
   }
 
@@ -322,7 +389,7 @@ async function installMac(edition: LocalEdition) {
   step('connection', 'working', 'Waiting for SQL Server to accept connections…');
   const cfg: ConnectionConfig = {
     id: '',
-    name: 'Local SQL Server',
+    name: LOCAL_SERVER_NAME,
     kind: 'mssql',
     host: '127.0.0.1',
     port: saved!.port,
@@ -333,10 +400,17 @@ async function installMac(edition: LocalEdition) {
     localServer: 'docker',
   };
   await waitForServer(cfg, 'connection');
+  if (created && saved!.collation && saved!.collation !== DEFAULT_SERVER_COLLATION) {
+    // On first start SQL Server accepts connections, then rebuilds its system databases with the new
+    // collation and restarts. Anything created before that finishes is left broken, so wait for it.
+    await waitForCollationChange();
+    await waitForServer(cfg, 'connection');
+  }
   const existing = localConnection('docker');
-  const conn = upsertConnection({ ...cfg, id: existing?.id ?? '', name: existing?.name ?? cfg.name });
+  const conn = upsertConnection({ ...cfg, id: existing?.id ?? '', name: opts.name?.trim() || existing?.name || cfg.name });
   step('connection', existing ? 'ok' : 'done', existing ? `Updated “${conn.name}”` : `Added “${conn.name}”`);
-  publish({ connId: conn.id });
+  publish({ connId: conn.id, server: { host: 'localhost', port: saved!.port, user: 'sa', edition: saved!.edition, collation: saved!.collation ?? DEFAULT_SERVER_COLLATION } });
+  return cfg;
 }
 
 async function installDockerDesktop() {
@@ -396,7 +470,7 @@ function pullImage(): Promise<void> {
   });
 }
 
-async function installWindows() {
+async function installWindows(opts: LocalServerOptions): Promise<ConnectionConfig> {
   step('winget', 'checking');
   if ((await run('winget', ['--version'], 20_000)).code !== 0) {
     throw new Error('winget is missing — install “App Installer” from the Microsoft Store, then press Install again.');
@@ -443,9 +517,27 @@ async function installWindows() {
   };
   await waitForServer(cfg, 'connection');
   const existing = localConnection('express');
-  const conn = upsertConnection({ ...cfg, id: existing?.id ?? '', name: existing?.name ?? cfg.name });
+  const conn = upsertConnection({ ...cfg, id: existing?.id ?? '', name: opts.name?.trim() || existing?.name || cfg.name });
   step('connection', existing ? 'ok' : 'done', existing ? `Updated “${conn.name}”` : `Added “${conn.name}”`);
-  publish({ connId: conn.id });
+  publish({ connId: conn.id, server: { host: 'localhost\\SQLEXPRESS' } });
+  return cfg;
+}
+
+/** Creates the first database (or leaves an existing one with that name alone). */
+async function createFirstDatabase(cfg: ConnectionConfig, db: { name: string; collation?: string }) {
+  step('database', 'working', 'Creating…');
+  const d = await openDriver(cfg, 'master');
+  try {
+    const exists = await d.exec('SELECT DB_ID(@p1)', [db.name]);
+    if (exists.rows[0]?.[0] != null) {
+      step('database', 'ok', 'Already exists');
+      return;
+    }
+    await d.exec(createDatabaseSql('mssql', db.name, { collation: db.collation }));
+    step('database', 'done', db.collation ? `Created (${db.collation})` : 'Created');
+  } finally {
+    await d.close();
+  }
 }
 
 // ---------------------------------------------------------------- utilities
@@ -465,6 +557,19 @@ async function waitForServer(cfg: ConnectionConfig, stepId: string) {
     }
   }
   throw new Error(`SQL Server did not accept connections: ${last}`);
+}
+
+async function waitForCollationChange() {
+  const started = Date.now();
+  while (Date.now() - started < 300_000) {
+    const r = await docker(['logs', CONTAINER], 30_000);
+    const log = r.stdout + r.stderr;
+    if (/default collation was successfully changed/i.test(log)) return;
+    if (/collation .*(failed|could not)/i.test(log)) throw new Error('SQL Server could not apply the chosen collation');
+    step('connection', 'working', `Applying the server collation… ${Math.round((Date.now() - started) / 1000)} s`);
+    await sleep(2000);
+  }
+  throw new Error('SQL Server did not finish applying the collation');
 }
 
 function strongPassword(): string {
