@@ -51,7 +51,14 @@ try {
     if (m.id) pending.get(m.id)?.(m);
     if (m.method === 'Runtime.exceptionThrown') exceptions.push(m.params.exceptionDetails.exception?.description ?? m.params.exceptionDetails.text);
   };
-  const send = (method, params = {}) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
+  // A call that gets no answer in 2 minutes resolves empty, so a hung app is reported instead of stalling the run.
+  const send = (method, params = {}) =>
+    new Promise((r) => {
+      const i = ++id;
+      const t = setTimeout(() => (pending.delete(i), r({ result: { result: { value: { ok: false, error: `no answer to ${method} in 2 min` } } } })), 120_000);
+      pending.set(i, (m) => (clearTimeout(t), r(m)));
+      ws.send(JSON.stringify({ id: i, method, params }));
+    });
   await send('Runtime.enable');
   const evaluate = async (expr) => (await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true })).result?.result?.value;
   const ipc = (m, ...a) => evaluate(`window.schemascope.invoke(${JSON.stringify(m)}, ...${JSON.stringify(a)})`);
@@ -146,21 +153,30 @@ try {
     const fmt = (x) => x.steps.map((t) => `${t.id}=${t.status}${t.detail ? `(${t.detail})` : ''}`).join(' ');
     const started = Date.now();
     const history = [];
+    // Last resort if even the timeouts above never return: report what is known and stop.
+    const watchdog = setTimeout(() => {
+      if (process.env.GITHUB_ACTIONS) console.log(`::error title=Express smoke watchdog::${history.slice(-8).join('%0A') || 'no state received'}`);
+      process.exit(1);
+    }, 75 * 60_000);
     let inst = null;
     while (!inst) {
       await sleep(20_000);
-      inst = await evaluate('window.__instDone ?? null');
+      const d = await evaluate('window.__instDone ?? null');
+      if (d && String(d.error ?? '').startsWith('no answer')) history.push(`renderer: ${d.error}`);
+      else inst = d;
       const live = await ipc('localServerState');
       const line = live.ok ? fmt(live.data).replace(/ \d+ MB/g, ' n MB') : live.error;
       if (line !== history.at(-1)) {
         history.push(line);
         console.log(`[${Math.round((Date.now() - started) / 60_000)} min] ${live.ok ? fmt(live.data) : live.error}`);
+        if (process.env.GITHUB_ACTIONS && history.length <= 9) console.log(`::notice title=Express ${Math.round((Date.now() - started) / 60_000)} min::${line}`);
       }
       if (!inst && Date.now() - started > 70 * 60_000) {
         if (process.env.GITHUB_ACTIONS) console.log(`::error title=Express install timed out::${history.slice(-8).join('%0A')}`);
         throw new Error(`Express install did not finish in 70 minutes; last: ${history.at(-1)}`);
       }
     }
+    clearTimeout(watchdog);
     const st = inst.ok ? inst.data : null;
     check('Express: installed and ready', !!st?.ready, st ? `${st.error ?? ''} ${fmt(st)}` : inst.error);
     if (st?.ready) {
