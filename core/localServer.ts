@@ -176,7 +176,7 @@ function expressInfo(instance: string, saved: ReturnType<typeof readSavedExpress
 const EXTRA_PATH = isMac
   ? ['/usr/local/bin', '/opt/homebrew/bin', path.join(os.homedir(), '.docker', 'bin'), '/Applications/Docker.app/Contents/Resources/bin']
   : [];
-const env = () => ({ ...process.env, PATH: [...EXTRA_PATH, process.env.PATH ?? ''].join(path.delimiter) });
+const env = (): NodeJS.ProcessEnv => ({ ...process.env, PATH: [...EXTRA_PATH, process.env.PATH ?? ''].join(path.delimiter) });
 
 interface RunResult {
   code: number;
@@ -184,8 +184,12 @@ interface RunResult {
   stderr: string;
 }
 function run(cmd: string, args: string[], timeout = 60_000): Promise<RunResult> {
+  const e = env();
+  // Windows PowerShell 5.1 cannot load its own modules (e.g. Get-AuthenticodeSignature) with a PSModulePath
+  // inherited from PowerShell 7; let it build its default.
+  if (/powershell(\.exe)?$/i.test(cmd)) delete e.PSModulePath;
   return new Promise((resolve) => {
-    execFile(cmd, args, { env: env(), timeout, maxBuffer: 20 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
+    execFile(cmd, args, { env: e, timeout, maxBuffer: 20 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as NodeJS.ErrnoException).code === 'number' ? Number((err as NodeJS.ErrnoException).code) : 1) : 0;
       resolve({ code, stdout: String(stdout), stderr: String(stderr || (err && !stdout ? err.message : '')) });
     });
@@ -608,7 +612,7 @@ async function signatureProblem(file: string): Promise<string | null> {
   );
   const [status = '', subject = '', message = ''] = r.stdout.trim().split('|');
   if (status === 'Valid' && /O=Microsoft Corporation/.test(subject)) return null;
-  return `${status || 'no result'}${subject ? `, signer ${subject.split(',')[0]}` : ''}${message ? ` (${message})` : ''}${r.code && !r.stdout ? ` ${firstLine(r.stderr)}` : ''}`;
+  return `${status || 'no result'}${subject ? `, signer ${subject.split(',')[0]}` : ''}${message ? ` (${message})` : ''}${r.stderr.trim() ? ` ${firstLine(r.stderr)}` : ''}`;
 }
 
 function folderSize(dir: string): number {
