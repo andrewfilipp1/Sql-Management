@@ -3,6 +3,7 @@
 // window + preload security, SQLite (native module) through IPC, schema introspection and the local API server.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -186,6 +187,15 @@ try {
       check('Express: mixed authentication on', Number(r[1]) === 0, String(r[1]));
       check('Express: first database created with the server collation', r[2] === 'Greek_CI_AS', String(r[2]));
       check('Express: Windows user is sysadmin', Number(r[4]) === 1, String(r[3]));
+      // Diagnostics for the two checks above and below, shown in the annotation when they fail.
+      const diag = await ipc('query', st.connId, 'master', "SELECT (SELECT STRING_AGG(name + N':' + CAST(UNICODE(name) AS nvarchar(10)), N',') FROM sys.databases WHERE database_id > 4), DB_ID(N'Πελάτες'), UNICODE(N'Π'), (SELECT STRING_AGG(value_name + N'=' + CAST(value_data AS nvarchar(50)), N',') FROM sys.dm_server_registry WHERE value_name IN (N'TcpPort', N'TcpDynamicPorts', N'Enabled') AND registry_key LIKE N'%Tcp%'), (SELECT TOP 1 net_transport + N' ' + encrypt_option FROM sys.dm_exec_connections WHERE session_id = @@SPID)");
+      const tcpOpen = await new Promise((r) => {
+        const sock = net.connect(14333, '127.0.0.1');
+        const done = (v) => (sock.destroy(), r(v));
+        sock.once('connect', () => done('open')).once('error', (e) => done(e.code)).setTimeout(10_000, () => done('timeout'));
+      });
+      console.log('diag', JSON.stringify(diag.ok ? diag.data.results[0].rows[0] : diag.error), 'tcp', tcpOpen);
+      if (process.env.GITHUB_ACTIONS) console.log(`::notice title=Express diagnostics::${JSON.stringify(diag.ok ? diag.data.results[0].rows[0] : diag.error)} tcp 14333: ${tcpOpen}`);
       const sa = await ipc('testConnection', { name: 'sa', kind: 'mssql', host: '127.0.0.1', port: 14333, user: 'sa', password: pw, trustServerCertificate: true });
       check('Express: sa signs in over TCP on the chosen port', sa.ok, sa.ok ? sa.data.version : sa.error);
       const conns = await ipc('listConnections');
